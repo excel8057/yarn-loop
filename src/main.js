@@ -3,7 +3,10 @@ import { getLevel, TOTAL_LEVELS } from './levels.js';
 import { isHardLevel } from './generator.js';
 import { computeView, draw, fx } from './render.js';
 import { unlock, sfx, setMuted, isMuted } from './audio.js';
-import { cloud, initCloud, signIn, signOut, loadProgress, saveProgress } from './cloud.js';
+import {
+  cloud, initCloud, signIn, signOut, loadProgress, saveProgress,
+  loadMyRank, saveRank, loadTopRanks, rankOf, rankScore, defaultNickname,
+} from './cloud.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('cv');
@@ -90,6 +93,7 @@ function showWin() {
     unlocked = levelIndex + 1;
     store.set('unlocked', unlocked);
     syncCloud();
+    syncRank();
   }
   if (levelIndex + 1 >= TOTAL_LEVELS) {
     showOverlay(
@@ -137,12 +141,37 @@ function showLevels() {
 // ── 구글 계정 ──────────────────────────────────────────
 
 const accountBtn = $('btn-account');
+const rankingBtn = $('btn-ranking');
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+/** @type {null | { name: string, cleared: number, reachedAt: number }} 내 랭킹 기록 */
+let myRank = null;
 
 /** 로그인해 있으면 진행도를 클라우드에도 저장한다 */
 function syncCloud() {
   if (!cloud.user) return;
   saveProgress({ unlocked, current: levelIndex }).catch(() => toast('클라우드 저장에 실패했어요'));
+}
+
+/** 깬 스테이지 수가 늘었으면 랭킹 기록을 갱신한다 (도달 시각도 함께) */
+function syncRank(force = false) {
+  if (!cloud.user || unlocked < 1) return;
+  myRank ??= { name: defaultNickname(cloud.user.uid), cleared: 0, reachedAt: Date.now() };
+  if (unlocked > myRank.cleared) {
+    myRank.cleared = unlocked;
+    myRank.reachedAt = Date.now();
+  } else if (!force) {
+    return;
+  }
+  saveRank(myRank).catch(() => toast('랭킹 저장에 실패했어요'));
+}
+
+async function login() {
+  try {
+    await signIn();
+    hideOverlay();
+  } catch {
+    toast('로그인에 실패했어요');
+  }
 }
 
 function renderAccountButton() {
@@ -156,6 +185,7 @@ function renderAccountButton() {
 /** 로그인하면 클라우드 진행도와 합친다. 더 많이 깬 쪽을 따른다 */
 async function onUser(user) {
   renderAccountButton();
+  myRank = null;
   if (!user) return;
   try {
     const saved = await loadProgress();
@@ -167,6 +197,8 @@ async function onUser(user) {
     } else {
       syncCloud();
     }
+    myRank = await loadMyRank();
+    syncRank();
   } catch {
     toast('진행도를 불러오지 못했어요');
   }
@@ -181,27 +213,20 @@ function showAccount() {
   if (!u) {
     showOverlay(
       `<div class="emoji">🧵</div><h2>구글 계정으로 로그인</h2><p>로그인하면 진행도가 저장되어<br>다른 기기에서도 이어서 할 수 있어요.</p>`,
-      [
-        ['Google로 로그인', async () => {
-          try {
-            await signIn();
-            hideOverlay();
-          } catch {
-            toast('로그인에 실패했어요');
-          }
-        }, true],
-        ['닫기', hideOverlay, false],
-      ],
+      [['Google로 로그인', login, true], ['닫기', hideOverlay, false]],
     );
     return;
   }
   const photo = u.photoURL
     ? `<img class="avatar" src="${escapeHtml(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
     : '<div class="emoji">👤</div>';
+  const nick = myRank?.name ?? defaultNickname(u.uid);
   showOverlay(
-    `${photo}<h2>${escapeHtml(u.displayName || '플레이어')}</h2><p>${escapeHtml(u.email)}<br>${Math.min(unlocked, TOTAL_LEVELS)} / ${TOTAL_LEVELS} 스테이지 완료 · 클라우드에 저장 중</p>`,
+    `${photo}<h2>${escapeHtml(u.displayName || '플레이어')}</h2><p>${escapeHtml(u.email)}<br>${Math.min(unlocked, TOTAL_LEVELS)} / ${TOTAL_LEVELS} 스테이지 완료 · 클라우드에 저장 중</p>
+    <label class="field"><span>랭킹에 보일 닉네임</span><input id="nick" maxlength="12" value="${escapeHtml(nick)}" autocomplete="off"></label>`,
     [
-      ['닫기', hideOverlay, true],
+      ['닉네임 저장', saveNickname, true],
+      ['닫기', hideOverlay, false],
       ['로그아웃', async () => {
         await signOut();
         hideOverlay();
@@ -209,6 +234,62 @@ function showAccount() {
       }, false],
     ],
   );
+}
+
+function saveNickname() {
+  const name = $('nick').value.trim().slice(0, 12);
+  if (!name) {
+    toast('닉네임을 입력해 주세요');
+    return;
+  }
+  myRank ??= { name, cleared: 0, reachedAt: Date.now() };
+  myRank.name = name;
+  if (unlocked < 1) {
+    toast('스테이지를 하나 깨면 이 닉네임으로 랭킹에 올라가요');
+  } else {
+    syncRank(true);
+    toast('닉네임을 저장했어요');
+  }
+  hideOverlay();
+}
+
+// ── 랭킹 ───────────────────────────────────────────────
+
+const MEDALS = ['🥇', '🥈', '🥉'];
+
+async function showRanking() {
+  if (!cloud.ready) {
+    toast('잠시 후 다시 시도해 주세요');
+    return;
+  }
+  showOverlay('<h2>랭킹</h2><p class="sub">불러오는 중…</p>', [['닫기', hideOverlay, false]]);
+  try {
+    const top = await loadTopRanks(50);
+    const me = cloud.user?.uid;
+    const rows = top.map((r, i) => `<li class="${r.uid === me ? 'me' : ''}">
+        <span class="rank">${MEDALS[i] ?? i + 1}</span>
+        <span class="name">${escapeHtml(r.name)}</span>
+        <span class="score">${r.cleared}</span>
+      </li>`).join('') || '<li class="empty">아직 기록이 없어요. 첫 주인공이 되어 보세요!</li>';
+
+    let mine;
+    if (!cloud.user) {
+      mine = '<p class="sub">로그인하면 랭킹에 참여할 수 있어요</p>';
+    } else if (myRank?.cleared >= 1) {
+      const pos = top.findIndex((r) => r.uid === me);
+      const n = pos >= 0 ? pos + 1 : await rankOf(rankScore(myRank.cleared, myRank.reachedAt));
+      mine = `<p class="sub mine">내 순위 <b>${n}위</b> · ${myRank.cleared} 스테이지</p>`;
+    } else {
+      mine = '<p class="sub">스테이지를 하나 깨면 랭킹에 올라가요</p>';
+    }
+    if (overlay.hidden) return; // 불러오는 사이 닫았으면 그대로 둔다
+    showOverlay(
+      `<h2>랭킹</h2><p class="sub">깬 스테이지 순 · 같으면 먼저 도달한 순</p><ol class="ranking">${rows}</ol>${mine}`,
+      cloud.user ? [['닫기', hideOverlay, true]] : [['Google로 로그인', login, true], ['닫기', hideOverlay, false]],
+    );
+  } catch {
+    if (!overlay.hidden) showOverlay('<h2>랭킹</h2><p>랭킹을 불러오지 못했어요.</p>', [['닫기', hideOverlay, false]]);
+  }
 }
 
 function handleEvents() {
@@ -271,6 +352,11 @@ requestAnimationFrame(frame);
 
 if (cloud.enabled) {
   accountBtn.hidden = false;
+  rankingBtn.hidden = false;
   accountBtn.addEventListener('click', showAccount);
-  initCloud(onUser).catch(() => { accountBtn.hidden = true; });
+  rankingBtn.addEventListener('click', showRanking);
+  initCloud(onUser).catch(() => {
+    accountBtn.hidden = true;
+    rankingBtn.hidden = true;
+  });
 }
