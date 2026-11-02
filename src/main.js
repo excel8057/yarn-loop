@@ -1,6 +1,6 @@
 import { Game } from './game.js';
 import { getLevel, LEVELS } from './levels.js';
-import { computeView, draw } from './render.js';
+import { computeView, draw, fx } from './render.js';
 import { unlock, sfx, setMuted, isMuted } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,7 +26,9 @@ const store = {
 };
 
 let unlocked = store.get('unlocked', 0);
-let levelIndex = Math.min(store.get('current', 0), unlocked);
+// ?level=N 으로 특정 레벨을 바로 열 수 있다 (테스트용)
+const levelParam = Number(new URLSearchParams(location.search).get('level'));
+let levelIndex = levelParam > 0 ? levelParam - 1 : Math.min(store.get('current', 0), unlocked);
 let game;
 let view;
 let toastTimer = 0;
@@ -36,6 +38,7 @@ function startLevel(i) {
   levelIndex = i;
   store.set('current', i);
   game = new Game(getLevel(i), i + 1);
+  fx.clear();
   $('lv-label').textContent = `Lv.${i + 1}`;
   $('lv-name').textContent = getLevel(i).name;
   hideOverlay();
@@ -50,7 +53,7 @@ function resize() {
   canvas.style.width = `${w}px`;
   canvas.style.height = `${h}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (game) view = computeView(game, w, h, hud.offsetHeight + 8);
+  if (game) view = computeView(game, w, h, hud.offsetHeight + 4, dpr);
 }
 
 function toast(msg) {
@@ -117,16 +120,21 @@ function showLevels() {
 
 function handleEvents() {
   for (const e of game.events) {
-    sfx[e]?.();
-    if (e === 'full') toast(`벨트가 가득 찼어요 (최대 ${game.beltCap}개)`);
-    if (e === 'win') setTimeout(showWin, 300);
-    if (e === 'lose') setTimeout(showLose, 500);
+    sfx[e.type]?.();
+    const color = game.colors[e.color];
+    if (e.type === 'hit') fx.fluff(e.x, e.y, color);
+    if (e.type === 'done') fx.burst(e.x, e.y, color, game.k);
+    if (e.type === 'full') toast(`벨트가 가득 찼어요 (최대 ${game.beltCap}개)`);
+    if (e.type === 'win') {
+      fx.confetti(game, game.colors);
+      setTimeout(showWin, 900);
+    }
+    if (e.type === 'lose') setTimeout(showLose, 600);
   }
   game.events.length = 0;
 }
 
 function updateHud() {
-  $('belt-count').textContent = `🧵 ${game.belt.length + game.launchQueue.length}/${game.beltCap}`;
   const pct = (1 - game.remainingStitches / game.totalStitches) * 100;
   $('progress-fill').style.width = `${pct}%`;
 }
@@ -142,7 +150,7 @@ function frame(now) {
   updateHud();
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  draw(ctx, game, view, now / 1000);
+  draw(ctx, game, view, now / 1000, dt);
   requestAnimationFrame(frame);
 }
 

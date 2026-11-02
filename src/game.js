@@ -2,23 +2,17 @@ import { PALETTE } from './levels.js';
 import { mulberry32, shuffle } from './rng.js';
 
 // 월드 좌표 단위 = 스티치 한 칸. 보드는 (0,0)~(cols,rows)에 놓인다.
-export const G = 0.95; // 보드 가장자리에서 벨트 중심선까지 거리
-export const BELT_R = 0.42; // 벨트 위 보빈 크기
-export const PARK_R = 0.6; // 대기열/보관함 보빈 크기
-export const SLOT_W = 1.5;
-const SLOT_GAP = 0.3;
-const COL_GAP = 2.0;
-const ROW_GAP = 1.7;
-const SPEED = 7.5; // 벨트 속도 (칸/초)
-const SPACING = 1.25; // 벨트 위 보빈 최소 간격
-const FLY_TIME = 0.3;
+// 벨트·보빈·보관함 같은 나머지 요소는 그림 크기에 비례하는 배율 k 로 키운다.
+const FLY_TIME = 0.32;
 const TWEEN_TIME = 0.28;
+const LAP_TIME = 6; // 벨트 한 바퀴 시간(초)
 
 /**
  * @typedef {'supply'|'queued'|'belt'|'slot'|'done'} BobbinState
  * @typedef {object} Bobbin
  * @property {number} id
  * @property {number} color
+ * @property {number} total      처음 감아야 했던 스티치 수
  * @property {number} remaining  아직 감아야 할 스티치 수
  * @property {BobbinState} state
  * @property {number} queue      대기열 번호 (supply 상태일 때)
@@ -35,16 +29,33 @@ const TWEEN_TIME = 0.28;
 
 const easeOut = (t) => 1 - (1 - t) ** 3;
 
+/** 위아래·양옆의 빈 줄을 잘라낸다 */
+function trim(art) {
+  const rows = art.map((r) => r.replace(/[^.]/g, '#'));
+  const filledRow = (r) => r.includes('#');
+  let top = 0, bottom = rows.length - 1;
+  while (top < bottom && !filledRow(rows[top])) top++;
+  while (bottom > top && !filledRow(rows[bottom])) bottom--;
+  const kept = art.slice(top, bottom + 1);
+  const w = Math.max(...kept.map((r) => r.length));
+  const colFilled = (x) => kept.some((r) => (r[x] ?? '.') !== '.');
+  let left = 0, right = w - 1;
+  while (left < right && !colFilled(left)) left++;
+  while (right > left && !colFilled(right)) right--;
+  return kept.map((r) => r.padEnd(w, '.').slice(left, right + 1));
+}
+
 export class Game {
   /** @param {import('./levels.js').LevelDef} def */
   constructor(def, seed) {
-    this.rows = def.art.length;
-    this.cols = Math.max(...def.art.map((r) => r.length));
+    const art = trim(def.art);
+    this.rows = art.length;
+    this.cols = art[0].length;
     this.grid = new Array(this.cols * this.rows).fill(-1);
     const chars = [];
     for (let y = 0; y < this.rows; y++) {
       for (let x = 0; x < this.cols; x++) {
-        const ch = def.art[y][x] ?? '.';
+        const ch = art[y][x];
         if (!PALETTE[ch]) continue;
         if (!chars.includes(ch)) chars.push(ch);
         this.grid[y * this.cols + x] = chars.indexOf(ch);
@@ -53,6 +64,22 @@ export class Game {
     this.colors = chars.map((c) => PALETTE[c]);
     this.totalStitches = this.grid.filter((c) => c >= 0).length;
     this.remainingStitches = this.totalStitches;
+    this.version = 0; // 그리드가 바뀔 때마다 증가 (렌더러 캐시용)
+
+    // 레이아웃 배율: 그림이 클수록 벨트와 보빈도 같은 비율로 커진다
+    const k = Math.max(this.cols, this.rows) / 12;
+    this.k = k;
+    this.G = 1.25 * k; // 보드 가장자리에서 벨트 중심선까지
+    this.trackW = 1.05 * k; // 벨트 폭 (레일 포함)
+    this.gap = 1.35 * k; // 왼쪽 아래 입구 크기
+    this.spacing = 1.3 * k;
+    // 실패 5개가 벨트 바깥 폭을 거의 채우도록 아래쪽 요소는 벨트 폭 기준으로 잡는다
+    const unit = (this.cols + 2 * this.G + this.trackW) / 5.3;
+    this.colGap = unit;
+    this.parkR = unit * 0.37;
+    this.rowGap = unit * 0.92;
+    this.slotW = unit * 0.8;
+    this.slotGap = unit * 0.2;
 
     /** @type {Bobbin[][]} */ this.queues = [];
     /** @type {(Bobbin|null)[]} */ this.slots = new Array(def.slots).fill(null);
@@ -64,10 +91,11 @@ export class Game {
     /** @type {'playing'|'won'|'lost'} */ this.status = 'playing';
     this.usedRescue = false;
     this.stranded = null;
-    /** @type {string[]} UI/사운드가 소비하는 이벤트 */ this.events = [];
+    /** UI/사운드/파티클이 소비하는 이벤트: { type, x, y, color } */ this.events = [];
     this.winTimer = 0;
 
     this.buildTrack();
+    this.speed = Math.max(7.5, this.perimeter / LAP_TIME);
     this.buildBobbins(def, mulberry32(seed));
     for (const b of this.allBobbins()) {
       const p = this.targetOf(b);
@@ -76,11 +104,15 @@ export class Game {
     }
   }
 
+  emit(type, x = 0, y = 0, color = -1) {
+    this.events.push({ type, x, y, color });
+  }
+
   // ── 벨트 ────────────────────────────────────────────
 
-  /** 벨트는 왼쪽 아래 모서리에서 출발해 시계 방향으로 한 바퀴 돈다 */
+  /** 벨트는 왼쪽 아래 모서리(입구)에서 출발해 시계 방향으로 한 바퀴 돈다 */
   buildTrack() {
-    const { cols: C, rows: R } = this;
+    const { cols: C, rows: R, G } = this;
     const L1 = R + 2 * G, L2 = C + 2 * G, L3 = R + 2 * G;
     this.sides = [L1, L2, L3];
     this.perimeter = 2 * (L1 + L2);
@@ -94,7 +126,7 @@ export class Game {
   }
 
   trackPos(d) {
-    const { cols: C, rows: R, perimeter: P } = this;
+    const { cols: C, rows: R, perimeter: P, G } = this;
     const [L1, L2, L3] = this.sides;
     d = ((d % P) + P) % P;
     if (d < L1) return { x: -G, y: R + G - d };
@@ -131,15 +163,17 @@ export class Game {
       }
     }
 
+    const avg = Math.max(3, Math.round(this.totalStitches / def.bobbins));
+    const maxDepth = Math.max(1, ...byColor.flat());
     const chunks = [];
     byColor.forEach((depths, color) => {
       depths.sort((a, b) => a - b);
       for (let k = 0; k < depths.length;) {
-        let size = Math.max(2, def.cap + Math.floor(rng() * 3) - 1);
-        if (depths.length - k - size < 2) size = depths.length - k; // 자투리는 마지막 보빈에 합친다
+        let size = Math.max(2, Math.round(avg * (0.45 + rng() * 1.1)));
+        if (depths.length - k - size < Math.max(2, avg * 0.3)) size = depths.length - k; // 자투리는 마지막 보빈에 합친다
         const part = depths.slice(k, k + size);
-        const mean = part.reduce((s, d) => s + d, 0) / part.length;
-        chunks.push({ color, size, pri: mean + rng() * (1.4 + (def.mix ?? 0) * 12) });
+        const mean = part.reduce((s, d) => s + d, 0) / part.length / maxDepth;
+        chunks.push({ color, size, pri: mean + rng() * (0.25 + (def.mix ?? 0) * 1.5) });
         k += size;
       }
     });
@@ -154,7 +188,7 @@ export class Game {
         const { color, size } = chunks[i + j];
         const q = order[j];
         this.queues[q].push({
-          id: id++, color, remaining: size, state: 'supply', queue: q,
+          id: id++, color, total: size, remaining: size, state: 'supply', queue: q,
           traveled: 0, x: 0, y: 0, fromX: 0, fromY: 0, tween: 1,
           inflight: 0, pop: 0, shake: 0,
         });
@@ -164,32 +198,33 @@ export class Game {
 
   // ── 레이아웃 ────────────────────────────────────────
 
-  get slotsY() { return this.rows + G + 1.9; }
-  get supplyY() { return this.slotsY + 2.1; }
+  get slotsY() { return this.rows + this.G + 1.3 * this.k + this.slotW / 2; }
+  get supplyY() { return this.slotsY + this.slotW / 2 + this.parkR * 1.35; }
 
   slotPos(i) {
     const n = this.slots.length;
-    const total = n * SLOT_W + (n - 1) * SLOT_GAP;
-    return { x: this.cols / 2 - total / 2 + SLOT_W / 2 + i * (SLOT_W + SLOT_GAP), y: this.slotsY };
+    const total = n * this.slotW + (n - 1) * this.slotGap;
+    return { x: this.cols / 2 - total / 2 + this.slotW / 2 + i * (this.slotW + this.slotGap), y: this.slotsY };
   }
 
   supplyPos(q, row) {
-    const x0 = this.cols / 2 - ((this.queues.length - 1) * COL_GAP) / 2;
-    return { x: x0 + q * COL_GAP, y: this.supplyY + row * ROW_GAP };
+    const x0 = this.cols / 2 - ((this.queues.length - 1) * this.colGap) / 2;
+    return { x: x0 + q * this.colGap, y: this.supplyY + row * this.rowGap };
   }
 
   bounds() {
+    const { k } = this;
     const n = this.slots.length;
     const half = Math.max(
-      this.cols / 2 + G + 0.7,
-      (n * SLOT_W + (n - 1) * SLOT_GAP) / 2 + 0.3,
-      ((this.queues.length - 1) * COL_GAP) / 2 + 0.9,
+      this.cols / 2 + this.G + 1.2 * k, // 왼쪽 아래 벨트 카운터까지 들어오도록
+      (n * this.slotW + (n - 1) * this.slotGap) / 2 + 0.3 * k,
+      ((this.queues.length - 1) * this.colGap) / 2 + this.parkR * 1.15,
     );
     return {
       minX: this.cols / 2 - half,
       maxX: this.cols / 2 + half,
-      minY: -G - 0.7,
-      maxY: this.supplyY + 2 * ROW_GAP + 0.9,
+      minY: -this.G - this.trackW / 2 - 0.3 * k,
+      maxY: this.supplyY + 2 * this.rowGap + this.parkR * 2.2, // "+n" 표시 자리 포함
     };
   }
 
@@ -217,11 +252,14 @@ export class Game {
     yield* this.belt;
   }
 
+  get beltCount() { return this.belt.length + this.launchQueue.length; }
+
   // ── 입력 ────────────────────────────────────────────
 
   tap(wx, wy) {
     if (this.status !== 'playing') return;
-    const hit = (b) => b && Math.abs(wx - b.x) < 0.8 && Math.abs(wy - b.y) < 0.9;
+    const r = this.parkR;
+    const hit = (b) => b && Math.abs(wx - b.x) < r * 1.3 && wy > b.y - r * 1.6 && wy < b.y + r * 1.2;
 
     for (const q of this.queues) {
       if (hit(q[0])) return this.tryLaunch(q[0], () => {
@@ -235,15 +273,15 @@ export class Game {
   }
 
   tryLaunch(b, detach) {
-    if (this.belt.length + this.launchQueue.length >= this.beltCap) {
+    if (this.beltCount >= this.beltCap) {
       b.shake = 0.35;
-      this.events.push('full');
+      this.emit('full', b.x, b.y);
       return;
     }
     detach();
     this.setState(b, 'queued');
     this.launchQueue.push(b);
-    this.events.push('launch');
+    this.emit('launch', b.x, b.y, b.color);
   }
 
   /** 게임오버 시 1회: 보관함을 한 칸 늘리고 이어서 진행 */
@@ -272,29 +310,29 @@ export class Game {
       }
     }
     for (let i = this.popping.length - 1; i >= 0; i--) {
-      this.popping[i].pop += dt / 0.35;
+      this.popping[i].pop += dt / 0.45;
       if (this.popping[i].pop >= 1) this.popping.splice(i, 1);
     }
     for (const b of this.allBobbins()) {
       b.shake = Math.max(0, b.shake - dt);
       b.tween = Math.min(1, b.tween + dt / TWEEN_TIME);
       const t = this.targetOf(b);
-      const k = easeOut(b.tween);
-      b.x = b.fromX + (t.x - b.fromX) * k;
-      b.y = b.fromY + (t.y - b.fromY) * k;
+      const e = easeOut(b.tween);
+      b.x = b.fromX + (t.x - b.fromX) * e;
+      b.y = b.fromY + (t.y - b.fromY) * e;
     }
 
     if (this.status === 'playing' && this.remainingStitches === 0 && this.flies.length === 0) {
       this.winTimer += dt;
-      if (this.winTimer > 0.5) {
+      if (this.winTimer > 0.6) {
         this.status = 'won';
-        this.events.push('win');
+        this.emit('win');
       }
     }
   }
 
   step(dt) {
-    while (this.launchQueue.length && this.belt.every((b) => b.traveled >= SPACING)) {
+    while (this.launchQueue.length && this.belt.every((b) => b.traveled >= this.spacing)) {
       const b = this.launchQueue.shift();
       b.traveled = 0;
       this.setState(b, 'belt');
@@ -303,7 +341,7 @@ export class Game {
 
     for (const b of [...this.belt]) {
       const old = b.traveled;
-      b.traveled += SPEED * dt;
+      b.traveled += this.speed * dt;
       if (b.remaining > 0) {
         for (const cp of this.checkpoints) {
           if (cp.d > old && cp.d <= b.traveled) this.fire(b, cp);
@@ -314,7 +352,7 @@ export class Game {
         b.state = 'done';
         b.pop = 0;
         this.popping.push(b);
-        this.events.push('done');
+        this.emit('done', b.x, b.y, b.color);
       } else if (b.remaining > 0 && b.traveled >= this.perimeter) {
         this.park(b);
         if (this.status !== 'playing') return;
@@ -330,11 +368,12 @@ export class Game {
       if (grid[i] < 0) continue;
       if (grid[i] === b.color && b.remaining > 0) {
         grid[i] = -1;
+        this.version++;
         this.remainingStitches--;
         b.remaining--;
         b.inflight++;
         this.flies.push({ color: b.color, sx: x + 0.5, sy: y + 0.5, target: b, t: 0 });
-        this.events.push('hit');
+        this.emit('hit', x + 0.5, y + 0.5, b.color);
       }
       return;
     }
@@ -346,12 +385,12 @@ export class Game {
     if (idx < 0) {
       this.status = 'lost';
       this.stranded = b;
-      this.events.push('lose');
+      this.emit('lose', b.x, b.y);
       return;
     }
     this.belt.splice(this.belt.indexOf(b), 1);
     this.slots[idx] = b;
     this.setState(b, 'slot');
-    this.events.push('park');
+    this.emit('park', b.x, b.y, b.color);
   }
 }
