@@ -3,6 +3,7 @@ import { getLevel, TOTAL_LEVELS } from './levels.js';
 import { isHardLevel } from './generator.js';
 import { computeView, draw, fx } from './render.js';
 import { unlock, sfx, setMuted, isMuted } from './audio.js';
+import { cloud, initCloud, signIn, signOut, loadProgress, saveProgress } from './cloud.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('cv');
@@ -39,6 +40,7 @@ setMuted(store.get('muted', false));
 function startLevel(i) {
   levelIndex = i;
   store.set('current', i);
+  syncCloud();
   game = new Game(getLevel(i), i + 1);
   fx.clear();
   $('lv-label').innerHTML = `Lv.${i + 1}<small> / ${TOTAL_LEVELS}</small>`;
@@ -87,6 +89,7 @@ function showWin() {
   if (levelIndex + 1 > unlocked) {
     unlocked = levelIndex + 1;
     store.set('unlocked', unlocked);
+    syncCloud();
   }
   if (levelIndex + 1 >= TOTAL_LEVELS) {
     showOverlay(
@@ -129,6 +132,83 @@ function showLevels() {
   overlay.querySelectorAll('[data-lv]').forEach((b) =>
     b.addEventListener('click', () => startLevel(Number(b.dataset.lv))));
   overlay.querySelector('.lv.current')?.scrollIntoView({ block: 'center' });
+}
+
+// ── 구글 계정 ──────────────────────────────────────────
+
+const accountBtn = $('btn-account');
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+/** 로그인해 있으면 진행도를 클라우드에도 저장한다 */
+function syncCloud() {
+  if (!cloud.user) return;
+  saveProgress({ unlocked, current: levelIndex }).catch(() => toast('클라우드 저장에 실패했어요'));
+}
+
+function renderAccountButton() {
+  const u = cloud.user;
+  accountBtn.innerHTML = u?.photoURL
+    ? `<img src="${escapeHtml(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
+    : '👤';
+  accountBtn.classList.toggle('signed-in', Boolean(u));
+}
+
+/** 로그인하면 클라우드 진행도와 합친다. 더 많이 깬 쪽을 따른다 */
+async function onUser(user) {
+  renderAccountButton();
+  if (!user) return;
+  try {
+    const saved = await loadProgress();
+    if (saved && saved.unlocked > unlocked) {
+      unlocked = Math.min(saved.unlocked, TOTAL_LEVELS);
+      store.set('unlocked', unlocked);
+      startLevel(Math.min(saved.current ?? unlocked, unlocked, TOTAL_LEVELS - 1));
+      toast('클라우드에 저장된 진행도를 불러왔어요');
+    } else {
+      syncCloud();
+    }
+  } catch {
+    toast('진행도를 불러오지 못했어요');
+  }
+}
+
+function showAccount() {
+  if (!cloud.ready) {
+    toast('잠시 후 다시 시도해 주세요');
+    return;
+  }
+  const u = cloud.user;
+  if (!u) {
+    showOverlay(
+      `<div class="emoji">🧵</div><h2>구글 계정으로 로그인</h2><p>로그인하면 진행도가 저장되어<br>다른 기기에서도 이어서 할 수 있어요.</p>`,
+      [
+        ['Google로 로그인', async () => {
+          try {
+            await signIn();
+            hideOverlay();
+          } catch {
+            toast('로그인에 실패했어요');
+          }
+        }, true],
+        ['닫기', hideOverlay, false],
+      ],
+    );
+    return;
+  }
+  const photo = u.photoURL
+    ? `<img class="avatar" src="${escapeHtml(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
+    : '<div class="emoji">👤</div>';
+  showOverlay(
+    `${photo}<h2>${escapeHtml(u.displayName || '플레이어')}</h2><p>${escapeHtml(u.email)}<br>${Math.min(unlocked, TOTAL_LEVELS)} / ${TOTAL_LEVELS} 스테이지 완료 · 클라우드에 저장 중</p>`,
+    [
+      ['닫기', hideOverlay, true],
+      ['로그아웃', async () => {
+        await signOut();
+        hideOverlay();
+        toast('로그아웃했어요');
+      }, false],
+    ],
+  );
 }
 
 function handleEvents() {
@@ -188,3 +268,9 @@ window.addEventListener('resize', resize);
 
 startLevel(levelIndex);
 requestAnimationFrame(frame);
+
+if (cloud.enabled) {
+  accountBtn.hidden = false;
+  accountBtn.addEventListener('click', showAccount);
+  initCloud(onUser).catch(() => { accountBtn.hidden = true; });
+}

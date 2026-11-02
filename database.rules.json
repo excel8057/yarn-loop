@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "yarnloop": {
+          ".validate": "newData.hasChildren(['unlocked', 'current'])",
+          "unlocked": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 400" },
+          "current": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 400" },
+          "updatedAt": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
+      }
+    }
+  }
+}
