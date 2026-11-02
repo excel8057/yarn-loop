@@ -1,4 +1,30 @@
 // Canvas 렌더러. 월드 좌표(스티치 한 칸 = 1)를 view.s 배율로 화면에 그린다.
+// 아트 방향: 밝고 포근한 파스텔. 그림자는 검정 대신 자줏빛으로 부드럽게.
+
+const THEME = {
+  shadow: 'rgba(150, 80, 115, 0.22)',
+  card: '#fffaf6',
+  cardEdge: '#f7dbe5',
+  cloth: '#fff7f0',
+  clothGrid: 'rgba(230, 160, 180, 0.16)',
+  seam: '#f6a9c0',
+  rail: '#ffffff',
+  railEdge: '#eab9cd',
+  groove: '#f2c8d9',
+  grooveMid: '#f8dce7',
+  tileSeam: 'rgba(205, 120, 160, 0.4)',
+  capTop: '#ffd77a',
+  capBottom: '#f6a93b',
+  capEdge: '#e08a2a',
+  slot: 'rgba(255, 255, 255, 0.6)',
+  slotEdge: 'rgba(232, 160, 188, 0.7)',
+  ink: '#7a4766',
+  badgeTop: '#ff9fc0',
+  badgeBottom: '#f0679a',
+  badgeFullTop: '#ff9a8a',
+  badgeFullBottom: '#e84a5f',
+  alert: '#ff5d8f',
+};
 
 /** 색(#rrggbb 또는 rgb())을 밝게(+) 또는 어둡게(-) */
 function shade(color, amt) {
@@ -31,7 +57,7 @@ export function computeView(game, w, h, top, dpr) {
 
 const spriteCache = new Map();
 
-/** 니트 스티치 한 칸(V자 두 고리)을 색·크기별로 미리 그려 둔다 */
+/** 통통한 니트 스티치 한 칸(V자 두 고리)을 색·크기별로 미리 그려 둔다 */
 function stitchSprite(color, px) {
   const key = `${color}@${px}`;
   let c = spriteCache.get(key);
@@ -40,29 +66,28 @@ function stitchSprite(color, px) {
   c.width = c.height = px;
   const g = c.getContext('2d');
   const s = px;
-  // 색이 또렷하게 읽히도록 음영은 약하게, 고리 경계만 살짝 그린다
   for (const side of [-1, 1]) {
     g.save();
     g.translate(s * (0.5 + side * 0.23), s * 0.5);
-    g.rotate(side * 0.36);
+    g.rotate(side * 0.38);
     const grad = g.createLinearGradient(0, -s * 0.5, 0, s * 0.5);
-    grad.addColorStop(0, shade(color, 0.14));
-    grad.addColorStop(1, shade(color, -0.1));
+    grad.addColorStop(0, shade(color, 0.32));
+    grad.addColorStop(0.45, color);
+    grad.addColorStop(1, shade(color, -0.14));
     g.beginPath();
-    g.ellipse(0, 0, s * 0.27, s * 0.54, 0, 0, Math.PI * 2);
+    g.ellipse(0, 0, s * 0.28, s * 0.53, 0, 0, Math.PI * 2);
     g.fillStyle = grad;
     g.fill();
     g.lineWidth = Math.max(0.5, s * 0.04);
-    g.strokeStyle = shade(color, -0.35);
+    g.strokeStyle = shade(color, -0.3);
     g.globalAlpha = 0.45;
     g.stroke();
-    g.globalAlpha = 0.3;
-    g.strokeStyle = shade(color, 0.6);
-    g.lineWidth = Math.max(0.5, s * 0.05);
+    // 윤기
+    g.globalAlpha = 0.45;
+    g.fillStyle = '#ffffff';
     g.beginPath();
-    g.moveTo(-s * 0.07, -s * 0.32);
-    g.quadraticCurveTo(0, -s * 0.05, -s * 0.04, s * 0.26);
-    g.stroke();
+    g.ellipse(-s * 0.06, -s * 0.2, s * 0.07, s * 0.16, 0, 0, Math.PI * 2);
+    g.fill();
     g.restore();
   }
   spriteCache.set(key, c);
@@ -91,12 +116,12 @@ function boardImage(game, s, dpr) {
     t.clearRect(0, 0, board.tmp.width, board.tmp.height);
     const px = Math.max(2, Math.ceil(cs * 1.06));
     const off = (px - cs) / 2;
-    // 고리 사이로 보이는 같은 색의 조금 어두운 바탕 (천 느낌은 살리되 색은 탁해지지 않게)
+    // 고리 사이로 보이는 같은 색의 조금 어두운 바탕
     for (let y = 0; y < game.rows; y++) {
       for (let x = 0; x < game.cols; x++) {
         const c = game.grid[y * game.cols + x];
         if (c < 0) continue;
-        t.fillStyle = shade(game.colors[c], -0.25);
+        t.fillStyle = shade(game.colors[c], -0.18);
         t.fillRect(board.pad + x * cs - 0.5, board.pad + y * cs - 0.5, cs + 1, cs + 1);
       }
     }
@@ -110,9 +135,9 @@ function boardImage(game, s, dpr) {
     const g = board.canvas.getContext('2d');
     g.clearRect(0, 0, board.canvas.width, board.canvas.height);
     g.save();
-    g.shadowColor = 'rgba(60,40,20,0.35)';
-    g.shadowBlur = cs * 0.5;
-    g.shadowOffsetY = cs * 0.2;
+    g.shadowColor = THEME.shadow;
+    g.shadowBlur = cs * 0.6;
+    g.shadowOffsetY = cs * 0.25;
     g.drawImage(board.tmp, 0, 0);
     g.restore();
   }
@@ -121,117 +146,121 @@ function boardImage(game, s, dpr) {
 
 // ── 실패(보빈) ─────────────────────────────────────────
 
-/** 대기열·보관함의 3D 실패: 위 원판에 숫자, 가운데 실 감긴 허리, 아래 원판 */
+function spoolLabel(ctx, text, x, y, size, color) {
+  ctx.font = `700 ${size}px "Fredoka", system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = size * 0.26;
+  ctx.strokeStyle = shade(color, -0.5);
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, x, y);
+}
+
+/** 대기열·보관함의 실패: 윤기 나는 위 원판에 숫자, 실 감긴 허리, 아래 원판 */
 function drawSpool(ctx, x, y, R, color, label, dim = 0) {
   const base = dim ? shade(color, -dim) : color;
   const c = (amt) => shade(base, amt);
-  const ry = R * 0.6, th = R * 0.24;
+  const ry = R * 0.6, th = R * 0.22;
   const ty = y - R * 0.5, by = y + R * 0.55;
 
   ctx.beginPath();
-  ctx.ellipse(x, by + th + R * 0.14, R * 1.08, ry * 0.85, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.ellipse(x, by + th + R * 0.12, R * 1.02, ry * 0.75, 0, 0, Math.PI * 2);
+  ctx.fillStyle = THEME.shadow;
   ctx.fill();
 
   // 아래 원판
-  ctx.fillStyle = c(-0.42);
+  ctx.fillStyle = c(-0.3);
   ctx.beginPath();
   ctx.ellipse(x, by + th, R, ry, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillRect(x - R, by, R * 2, th);
-  ctx.fillStyle = c(-0.18);
+  ctx.fillStyle = c(-0.08);
   ctx.beginPath();
   ctx.ellipse(x, by, R, ry, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // 허리 (실)
-  const w = R * 0.64;
+  const w = R * 0.66;
   const grad = ctx.createLinearGradient(x - w, 0, x + w, 0);
-  grad.addColorStop(0, c(-0.45));
-  grad.addColorStop(0.3, c(0.12));
-  grad.addColorStop(0.55, base);
-  grad.addColorStop(1, c(-0.5));
+  grad.addColorStop(0, c(-0.28));
+  grad.addColorStop(0.3, c(0.22));
+  grad.addColorStop(0.6, base);
+  grad.addColorStop(1, c(-0.32));
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.rect(x - w, ty, w * 2, by - ty);
   ctx.ellipse(x, by, w, ry * 0.64, 0, 0, Math.PI);
   ctx.fill();
-  ctx.strokeStyle = c(-0.38);
-  ctx.globalAlpha = 0.5;
-  ctx.lineWidth = Math.max(1, R * 0.05);
-  for (let i = 1; i <= 3; i++) {
-    const yy = ty + ((by - ty) * i) / 4;
+  ctx.lineWidth = Math.max(1, R * 0.045);
+  for (let i = 1; i <= 4; i++) {
+    const yy = ty + ((by - ty) * i) / 5;
+    ctx.strokeStyle = i % 2 ? c(0.4) : c(-0.25);
+    ctx.globalAlpha = 0.45;
     ctx.beginPath();
-    ctx.ellipse(x, yy, w, ry * 0.5, 0, 0.15, Math.PI - 0.15);
+    ctx.ellipse(x, yy, w, ry * 0.45, 0, 0.2, Math.PI - 0.2);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
   // 위 원판
-  ctx.fillStyle = c(-0.4);
+  ctx.fillStyle = c(-0.28);
   ctx.beginPath();
   ctx.ellipse(x, ty + th, R, ry, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillRect(x - R, ty, R * 2, th);
-  const top = ctx.createRadialGradient(x - R * 0.35, ty - ry * 0.45, R * 0.1, x, ty, R * 1.1);
-  top.addColorStop(0, c(0.38));
-  top.addColorStop(0.55, base);
-  top.addColorStop(1, c(-0.22));
+  const top = ctx.createRadialGradient(x - R * 0.3, ty - ry * 0.4, R * 0.05, x, ty, R * 1.05);
+  top.addColorStop(0, c(0.5));
+  top.addColorStop(0.5, base);
+  top.addColorStop(1, c(-0.06));
   ctx.fillStyle = top;
   ctx.beginPath();
   ctx.ellipse(x, ty, R, ry, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = Math.max(1, R * 0.05);
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.lineWidth = Math.max(1, R * 0.07);
+  ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.ellipse(x, ty, R * 0.94, ry * 0.92, 0, Math.PI * 1.05, Math.PI * 1.75);
+  ctx.ellipse(x, ty, R * 0.86, ry * 0.8, 0, Math.PI * 1.1, Math.PI * 1.45);
   ctx.stroke();
 
   if (label !== undefined) {
     const text = String(label);
-    const size = R * (text.length >= 3 ? 0.62 : 0.78);
-    ctx.font = `900 ${size}px "Fredoka", system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = R * 0.2;
-    ctx.strokeStyle = 'rgba(30,20,20,0.7)';
-    ctx.strokeText(text, x, ty + R * 0.03);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(text, x, ty + R * 0.03);
+    spoolLabel(ctx, text, x, ty + R * 0.04, R * (text.length >= 3 ? 0.6 : 0.76), base);
   }
 }
 
 /** 벨트 위에 누운 실패. fill(0~1)만큼 실이 두툼해진다 */
 function drawBeltSpool(ctx, x, y, h, color, fill, label, alpha = 1) {
-  const fw = h * 0.2, bodyW = h * 0.66;
-  const bodyH = h * (0.4 + 0.42 * fill);
+  const fw = h * 0.22, bodyW = h * 0.64;
+  const bodyH = h * (0.42 + 0.4 * fill);
   ctx.save();
   ctx.globalAlpha = alpha;
 
   ctx.beginPath();
-  ctx.ellipse(x, y + h * 0.52, h * 0.6, h * 0.14, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.ellipse(x, y + h * 0.5, h * 0.55, h * 0.12, 0, 0, Math.PI * 2);
+  ctx.fillStyle = THEME.shadow;
   ctx.fill();
 
   const yarn = ctx.createLinearGradient(0, y - bodyH / 2, 0, y + bodyH / 2);
-  yarn.addColorStop(0, shade(color, 0.3));
-  yarn.addColorStop(0.45, color);
-  yarn.addColorStop(1, shade(color, -0.4));
+  yarn.addColorStop(0, shade(color, 0.38));
+  yarn.addColorStop(0.5, color);
+  yarn.addColorStop(1, shade(color, -0.25));
   ctx.beginPath();
-  ctx.roundRect(x - bodyW / 2, y - bodyH / 2, bodyW, bodyH, bodyH * 0.35);
+  ctx.roundRect(x - bodyW / 2, y - bodyH / 2, bodyW, bodyH, bodyH * 0.4);
   ctx.fillStyle = yarn;
   ctx.fill();
   ctx.save();
   ctx.clip();
-  ctx.strokeStyle = shade(color, -0.35);
-  ctx.lineWidth = Math.max(1, h * 0.05);
-  ctx.globalAlpha = alpha * 0.55;
+  ctx.lineWidth = Math.max(1, h * 0.045);
   for (let i = -4; i <= 4; i++) {
-    const xx = x + i * h * 0.12;
+    const xx = x + i * h * 0.11;
+    ctx.strokeStyle = i % 2 ? shade(color, 0.45) : shade(color, -0.2);
+    ctx.globalAlpha = alpha * 0.45;
     ctx.beginPath();
-    ctx.moveTo(xx - h * 0.12, y - bodyH / 2);
-    ctx.lineTo(xx + h * 0.12, y + bodyH / 2);
+    ctx.moveTo(xx - h * 0.1, y - bodyH / 2);
+    ctx.lineTo(xx + h * 0.1, y + bodyH / 2);
     ctx.stroke();
   }
   ctx.restore();
@@ -239,27 +268,69 @@ function drawBeltSpool(ctx, x, y, h, color, fill, label, alpha = 1) {
   for (const side of [-1, 1]) {
     const fx = x + side * (bodyW / 2 + fw / 2);
     const g = ctx.createLinearGradient(fx - fw / 2, 0, fx + fw / 2, 0);
-    g.addColorStop(0, shade(color, -0.45));
-    g.addColorStop(0.4, shade(color, 0.1));
-    g.addColorStop(1, shade(color, -0.5));
+    g.addColorStop(0, shade(color, -0.25));
+    g.addColorStop(0.45, shade(color, 0.35));
+    g.addColorStop(1, shade(color, -0.3));
     ctx.beginPath();
-    ctx.roundRect(fx - fw / 2, y - h / 2, fw, h, fw * 0.45);
+    ctx.roundRect(fx - fw / 2, y - h / 2, fw, h, fw * 0.5);
     ctx.fillStyle = g;
     ctx.fill();
   }
 
-  if (label !== undefined) {
-    ctx.font = `900 ${h * 0.5}px "Fredoka", system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = h * 0.13;
-    ctx.strokeStyle = 'rgba(30,20,20,0.75)';
-    ctx.strokeText(String(label), x, y - h * 0.68);
-    ctx.fillStyle = '#fff';
-    ctx.fillText(String(label), x, y - h * 0.68);
+  if (label !== undefined) spoolLabel(ctx, String(label), x, y - h * 0.72, h * 0.5, color);
+  ctx.restore();
+}
+
+// ── 판 ─────────────────────────────────────────────────
+
+/** 벨트와 그림을 올려 두는 흰 쿠션 카드, 그 안쪽의 천과 바느질 선 */
+function drawBoardCard(ctx, game, X, Y, s) {
+  const { G, trackW, cols: C, rows: R, k } = game;
+  const out = G + trackW * 0.5 + 0.32 * k;
+  const r = (1.1 * k + trackW * 0.5 + 0.32 * k) * s;
+
+  ctx.save();
+  ctx.shadowColor = THEME.shadow;
+  ctx.shadowBlur = 0.8 * k * s;
+  ctx.shadowOffsetY = 0.25 * k * s;
+  ctx.beginPath();
+  ctx.roundRect(X(-out), Y(-out), (C + out * 2) * s, (R + out * 2) * s, r);
+  ctx.fillStyle = THEME.card;
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = THEME.cardEdge;
+  ctx.lineWidth = Math.max(1, 0.05 * k * s);
+  ctx.stroke();
+
+  // 벨트 안쪽 천
+  const inset = G - trackW * 0.4;
+  const x0 = X(-inset), y0 = Y(-inset), x1 = X(C + inset), y1 = Y(R + inset);
+  const ri = Math.max(2, (1.1 * k - trackW * 0.4) * s);
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x0, y0, x1 - x0, y1 - y0, ri);
+  ctx.fillStyle = THEME.cloth;
+  ctx.fill();
+  ctx.clip();
+  ctx.fillStyle = THEME.clothGrid;
+  const dot = Math.max(1, s * 0.12);
+  for (let y = Math.ceil(-inset); y <= R + inset; y++) {
+    for (let x = Math.ceil(-inset); x <= C + inset; x++) {
+      ctx.fillRect(X(x) - dot / 2, Y(y) - dot / 2, dot, dot);
+    }
   }
   ctx.restore();
+
+  // 바느질 점선
+  const m = 0.28 * k * s;
+  ctx.beginPath();
+  ctx.roundRect(x0 + m, y0 + m, x1 - x0 - m * 2, y1 - y0 - m * 2, Math.max(2, ri - m));
+  ctx.setLineDash([0.32 * k * s, 0.22 * k * s]);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = THEME.seam;
+  ctx.lineWidth = Math.max(1.5, 0.08 * k * s);
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 // ── 벨트 ───────────────────────────────────────────────
@@ -282,20 +353,12 @@ function drawTrack(ctx, game, X, Y, s) {
   ctx.lineCap = 'butt';
   ctx.lineJoin = 'round';
 
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = tw * 0.6;
-  ctx.shadowOffsetY = tw * 0.25;
-  trackPath(ctx, game, X, Y, s);
-  ctx.strokeStyle = '#cbbda8';
-  ctx.lineWidth = tw;
-  ctx.stroke();
-  ctx.restore();
-
   const layers = [
-    ['#efe6d6', 0.9],
-    ['#3f3833', 0.64],
-    ['#4a423c', 0.5],
+    [THEME.railEdge, 1.0],
+    [THEME.rail, 0.9],
+    [THEME.railEdge, 0.66],
+    [THEME.groove, 0.6],
+    [THEME.grooveMid, 0.36],
   ];
   for (const [color, wf] of layers) {
     trackPath(ctx, game, X, Y, s);
@@ -304,62 +367,58 @@ function drawTrack(ctx, game, X, Y, s) {
     ctx.stroke();
   }
   trackPath(ctx, game, X, Y, s);
-  ctx.setLineDash([Math.max(1, tw * 0.06), tw * 0.85]);
-  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-  ctx.lineWidth = tw * 0.64;
+  ctx.setLineDash([Math.max(1, tw * 0.05), tw * 0.8]);
+  ctx.strokeStyle = THEME.tileSeam;
+  ctx.lineWidth = tw * 0.6;
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // 입구 양 끝의 노란 마개
+  // 입구 양 끝 마개
   const L = X(-game.G), B = Y(game.rows + game.G), g = game.gap * s;
   const cap = (cx, cy, w, h) => {
     const grad = ctx.createLinearGradient(cx, cy - h / 2, cx, cy + h / 2);
-    grad.addColorStop(0, '#ffd45a');
-    grad.addColorStop(1, '#e09a1c');
+    grad.addColorStop(0, THEME.capTop);
+    grad.addColorStop(1, THEME.capBottom);
     ctx.beginPath();
-    ctx.roundRect(cx - w / 2, cy - h / 2, w, h, Math.min(w, h) * 0.35);
+    ctx.roundRect(cx - w / 2, cy - h / 2, w, h, Math.min(w, h) * 0.45);
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = '#a8700f';
+    ctx.strokeStyle = THEME.capEdge;
     ctx.lineWidth = Math.max(1, tw * 0.05);
     ctx.stroke();
   };
-  cap(L, B - g, tw * 1.12, tw * 0.4);
-  cap(L + g, B, tw * 0.4, tw * 1.12);
+  cap(L, B - g, tw * 1.08, tw * 0.38);
+  cap(L + g, B, tw * 0.38, tw * 1.08);
   ctx.restore();
 }
 
-/** 입구 옆의 벨트 카운터 (손목시계 모양) */
+/** 입구 옆의 벨트 카운터 */
 function drawBadge(ctx, game, X, Y, s) {
   const { k } = game;
-  const cx = X(-game.G - 0.45 * k), cy = Y(game.rows + game.G + 0.75 * k);
-  const w = 1.3 * k * s, h = 0.9 * k * s;
+  const cx = X(-game.G - 0.35 * k), cy = Y(game.rows + game.G + 0.85 * k);
+  const w = 1.6 * k * s, h = 0.95 * k * s;
   const full = game.beltCount >= game.beltCap;
 
-  ctx.fillStyle = '#e3a524';
-  ctx.beginPath();
-  ctx.roundRect(cx - w * 0.28, cy - h * 0.85, w * 0.56, h * 1.7, w * 0.08);
-  ctx.fill();
-
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.45)';
-  ctx.shadowBlur = h * 0.3;
+  ctx.shadowColor = THEME.shadow;
+  ctx.shadowBlur = h * 0.4;
   ctx.shadowOffsetY = h * 0.12;
   ctx.beginPath();
-  ctx.roundRect(cx - w / 2, cy - h / 2, w, h, h * 0.28);
-  ctx.fillStyle = '#1e2a52';
+  ctx.roundRect(cx - w / 2, cy - h / 2, w, h, h / 2);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.restore();
 
   const scr = ctx.createLinearGradient(0, cy - h / 2, 0, cy + h / 2);
-  scr.addColorStop(0, full ? '#ff6b6b' : '#4f8ff0');
-  scr.addColorStop(1, full ? '#d33a3a' : '#2b62cf');
+  scr.addColorStop(0, full ? THEME.badgeFullTop : THEME.badgeTop);
+  scr.addColorStop(1, full ? THEME.badgeFullBottom : THEME.badgeBottom);
+  const p = h * 0.12;
   ctx.beginPath();
-  ctx.roundRect(cx - w / 2 + h * 0.1, cy - h / 2 + h * 0.1, w - h * 0.2, h * 0.8, h * 0.2);
+  ctx.roundRect(cx - w / 2 + p, cy - h / 2 + p, w - p * 2, h - p * 2, (h - p * 2) / 2);
   ctx.fillStyle = scr;
   ctx.fill();
 
-  ctx.font = `900 ${h * 0.5}px "Fredoka", system-ui, sans-serif`;
+  ctx.font = `700 ${h * 0.48}px "Fredoka", system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#fff';
@@ -445,45 +504,6 @@ function drawParticles(ctx, dt, X, Y, s) {
   ctx.globalAlpha = 1;
 }
 
-// ── 십자수 천 ──────────────────────────────────────────
-
-/** 벨트 안쪽에 까는 밝은 천. 어두운 실(검정·남색 등)도 또렷하게 보이게 한다 */
-function drawCloth(ctx, game, X, Y, s) {
-  const { G, trackW, cols: C, rows: R, k } = game;
-  const inset = G - trackW * 0.42;
-  const x0 = X(-inset), y0 = Y(-inset), x1 = X(C + inset), y1 = Y(R + inset);
-  const r = Math.max(2, (1.1 * k - trackW * 0.42) * s);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.roundRect(x0, y0, x1 - x0, y1 - y0, r);
-  ctx.fillStyle = '#ddd3c3';
-  ctx.fill();
-  ctx.clip();
-
-  // 칸마다 옅은 격자 (aida 천의 짜임)
-  ctx.strokeStyle = 'rgba(120,95,70,0.13)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let x = Math.ceil(-inset); x <= C + inset; x++) {
-    ctx.moveTo(Math.round(X(x)) + 0.5, y0);
-    ctx.lineTo(Math.round(X(x)) + 0.5, y1);
-  }
-  for (let y = Math.ceil(-inset); y <= R + inset; y++) {
-    ctx.moveTo(x0, Math.round(Y(y)) + 0.5);
-    ctx.lineTo(x1, Math.round(Y(y)) + 0.5);
-  }
-  ctx.stroke();
-
-  // 가장자리 안쪽 그림자
-  const shadow = ctx.createLinearGradient(0, y0, 0, y0 + 1.2 * k * s);
-  shadow.addColorStop(0, 'rgba(60,40,20,0.22)');
-  shadow.addColorStop(1, 'rgba(60,40,20,0)');
-  ctx.fillStyle = shadow;
-  ctx.fillRect(x0, y0, x1 - x0, 1.2 * k * s);
-  ctx.restore();
-}
-
 // ── 전체 장면 ──────────────────────────────────────────
 
 export function draw(ctx, game, view, time, dt) {
@@ -492,7 +512,7 @@ export function draw(ctx, game, view, time, dt) {
   const Y = (wy) => oy + wy * s;
   const { k } = game;
 
-  drawCloth(ctx, game, X, Y, s);
+  drawBoardCard(ctx, game, X, Y, s);
   drawTrack(ctx, game, X, Y, s);
 
   const img = boardImage(game, s, dpr);
@@ -509,11 +529,11 @@ export function draw(ctx, game, view, time, dt) {
     ctx.beginPath();
     ctx.moveTo(X(tx), Y(ty));
     ctx.quadraticCurveTo(X(mx), Y(my), X(px), Y(py));
-    ctx.strokeStyle = shade(game.colors[f.color], -0.15);
-    ctx.lineWidth = Math.max(1.2, s * 0.16);
+    ctx.strokeStyle = game.colors[f.color];
+    ctx.lineWidth = Math.max(1.5, s * 0.18);
     ctx.lineCap = 'round';
     ctx.stroke();
-    const size = s * (1.1 - t * 0.6);
+    const size = s * (1.15 - t * 0.6);
     ctx.drawImage(stitchSprite(game.colors[f.color], flyPx), X(px) - size / 2, Y(py) - size / 2, size, size);
   }
 
@@ -524,12 +544,15 @@ export function draw(ctx, game, view, time, dt) {
   game.slots.forEach((_, i) => {
     const p = game.slotPos(i);
     ctx.beginPath();
-    ctx.roundRect(X(p.x) - sw / 2, Y(p.y) - sw * 0.5, sw, sw, sw * 0.16);
-    ctx.fillStyle = 'rgba(20,16,14,0.45)';
+    ctx.roundRect(X(p.x) - sw / 2, Y(p.y) - sw * 0.5, sw, sw, sw * 0.28);
+    ctx.fillStyle = THEME.slot;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.lineWidth = Math.max(1, s * 0.06);
+    ctx.setLineDash([sw * 0.1, sw * 0.08]);
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = THEME.slotEdge;
+    ctx.lineWidth = Math.max(1.5, s * 0.08);
     ctx.stroke();
+    ctx.setLineDash([]);
   });
 
   const wobble = (b) => (b.shake > 0 ? Math.sin(b.shake * 60) * 0.12 * k * (b.shake / 0.35) : 0);
@@ -550,12 +573,14 @@ export function draw(ctx, game, view, time, dt) {
       ctx.font = `700 ${Math.round(park * 0.6)}px "Fredoka", system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillStyle = THEME.ink;
+      ctx.globalAlpha = 0.6;
       ctx.fillText(`+${q.length - 3}`, X(p.x), Y(p.y) + park * 1.85);
+      ctx.globalAlpha = 1;
     }
   });
 
-  // 벨트 위 실패 (대기열에서 벨트로 옮겨 가는 동안은 3D 실패 모양 유지)
+  // 벨트 위 실패 (대기열에서 벨트로 옮겨 가는 동안은 세운 실패 모양 유지)
   const bh = game.trackW * 1.1 * s;
   for (const b of game.launchQueue) {
     drawSpool(ctx, X(b.x), Y(b.y), park * (1 - b.tween * 0.35), game.colors[b.color], b.remaining);
@@ -577,7 +602,7 @@ export function draw(ctx, game, view, time, dt) {
     const b = game.stranded;
     ctx.beginPath();
     ctx.arc(X(b.x), Y(b.y), (0.75 + Math.sin(time * 8) * 0.08) * k * s, 0, Math.PI * 2);
-    ctx.strokeStyle = '#ff5a5a';
+    ctx.strokeStyle = THEME.alert;
     ctx.lineWidth = Math.max(2, 0.1 * k * s);
     ctx.stroke();
   }

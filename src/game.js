@@ -224,7 +224,7 @@ export class Game {
 
   // ── 레이아웃 ────────────────────────────────────────
 
-  get slotsY() { return this.rows + this.G + 1.3 * this.k + this.slotW / 2; }
+  get slotsY() { return this.rows + this.G + 1.5 * this.k + this.slotW / 2; }
   get supplyY() { return this.slotsY + this.slotW / 2 + this.parkR * 1.35; }
 
   slotPos(i) {
@@ -249,7 +249,7 @@ export class Game {
     return {
       minX: this.cols / 2 - half,
       maxX: this.cols / 2 + half,
-      minY: -this.G - this.trackW / 2 - 0.3 * k,
+      minY: -this.G - this.trackW / 2 - 0.6 * k, // 흰 카드와 그림자까지
       maxY: this.supplyY + 2 * this.rowGap + this.parkR * 2.2, // "+n" 표시 자리 포함
     };
   }
