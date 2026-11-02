@@ -1,29 +1,25 @@
 // Canvas 렌더러. 월드 좌표(스티치 한 칸 = 1)를 view.s 배율로 화면에 그린다.
-// 아트 방향: 밝고 포근한 파스텔. 그림자는 검정 대신 자줏빛으로 부드럽게.
+// 아트 방향: 장인의 공방. 호두나무 액자, 리넨 천, 황동 레일, 원목 실패, 금색 포인트.
 
 const THEME = {
-  shadow: 'rgba(150, 80, 115, 0.22)',
-  card: '#fffaf6',
-  cardEdge: '#f7dbe5',
-  cloth: '#fff7f0',
-  clothGrid: 'rgba(230, 160, 180, 0.16)',
-  seam: '#f6a9c0',
-  rail: '#ffffff',
-  railEdge: '#eab9cd',
-  groove: '#f2c8d9',
-  grooveMid: '#f8dce7',
-  tileSeam: 'rgba(205, 120, 160, 0.4)',
-  capTop: '#ffd77a',
-  capBottom: '#f6a93b',
-  capEdge: '#e08a2a',
-  slot: 'rgba(255, 255, 255, 0.6)',
-  slotEdge: 'rgba(232, 160, 188, 0.7)',
-  ink: '#7a4766',
-  badgeTop: '#ff9fc0',
-  badgeBottom: '#f0679a',
-  badgeFullTop: '#ff9a8a',
-  badgeFullBottom: '#e84a5f',
-  alert: '#ff5d8f',
+  shadow: 'rgba(5, 10, 15, 0.45)',
+  softShadow: 'rgba(40, 25, 15, 0.28)',
+  woodLight: '#9a6a43',
+  woodDark: '#5e3b22',
+  woodEdge: '#3f2615',
+  gold: '#d8b46a',
+  goldLight: '#f3dca0',
+  goldDark: '#9c7631',
+  linen: '#f2ebdf',
+  linenWeave: 'rgba(150, 120, 85, 0.09)',
+  groove: '#2b211b',
+  grooveMid: '#3a2d24',
+  maple: '#e6c79a',
+  mapleDark: '#b98f5c',
+  slot: 'rgba(8, 14, 20, 0.45)',
+  slotEdge: 'rgba(216, 180, 106, 0.45)',
+  ink: '#e9dcc3',
+  alert: '#e5604f',
 };
 
 /** 색(#rrggbb 또는 rgb())을 밝게(+) 또는 어둡게(-) */
@@ -53,11 +49,46 @@ export function computeView(game, w, h, top, dpr) {
   };
 }
 
+// ── 재질 ───────────────────────────────────────────────
+
+let woodPattern = null;
+
+/** 나뭇결 무늬를 한 번 만들어 두고 패턴으로 쓴다 */
+function woodTexture(ctx) {
+  if (woodPattern) return woodPattern;
+  const c = Object.assign(document.createElement('canvas'), { width: 256, height: 256 });
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 256, 0);
+  grad.addColorStop(0, THEME.woodDark);
+  grad.addColorStop(0.5, THEME.woodLight);
+  grad.addColorStop(1, THEME.woodDark);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 70; i++) {
+    const y0 = Math.random() * 256, amp = 2 + Math.random() * 5, f = 0.01 + Math.random() * 0.03;
+    g.strokeStyle = Math.random() < 0.5 ? 'rgba(40,22,10,0.22)' : 'rgba(255,220,170,0.08)';
+    g.lineWidth = 0.6 + Math.random() * 1.6;
+    g.beginPath();
+    for (let x = 0; x <= 256; x += 8) g.lineTo(x, y0 + Math.sin(x * f + i) * amp);
+    g.stroke();
+  }
+  woodPattern = ctx.createPattern(c, 'repeat');
+  return woodPattern;
+}
+
+function goldGradient(ctx, x0, y0, x1, y1) {
+  const g = ctx.createLinearGradient(x0, y0, x1, y1);
+  g.addColorStop(0, THEME.goldLight);
+  g.addColorStop(0.45, THEME.gold);
+  g.addColorStop(1, THEME.goldDark);
+  return g;
+}
+
 // ── 스티치 ─────────────────────────────────────────────
 
 const spriteCache = new Map();
 
-/** 통통한 니트 스티치 한 칸(V자 두 고리)을 색·크기별로 미리 그려 둔다 */
+/** 울 니트 스티치 한 칸(V자 두 고리): 은은한 광택만 남긴 무광 질감 */
 function stitchSprite(color, px) {
   const key = `${color}@${px}`;
   let c = spriteCache.get(key);
@@ -71,23 +102,27 @@ function stitchSprite(color, px) {
     g.translate(s * (0.5 + side * 0.23), s * 0.5);
     g.rotate(side * 0.38);
     const grad = g.createLinearGradient(0, -s * 0.5, 0, s * 0.5);
-    grad.addColorStop(0, shade(color, 0.32));
-    grad.addColorStop(0.45, color);
-    grad.addColorStop(1, shade(color, -0.14));
+    grad.addColorStop(0, shade(color, 0.2));
+    grad.addColorStop(0.5, color);
+    grad.addColorStop(1, shade(color, -0.18));
     g.beginPath();
     g.ellipse(0, 0, s * 0.28, s * 0.53, 0, 0, Math.PI * 2);
     g.fillStyle = grad;
     g.fill();
     g.lineWidth = Math.max(0.5, s * 0.04);
-    g.strokeStyle = shade(color, -0.3);
-    g.globalAlpha = 0.45;
+    g.strokeStyle = shade(color, -0.35);
+    g.globalAlpha = 0.5;
     g.stroke();
-    // 윤기
-    g.globalAlpha = 0.45;
-    g.fillStyle = '#ffffff';
-    g.beginPath();
-    g.ellipse(-s * 0.06, -s * 0.2, s * 0.07, s * 0.16, 0, 0, Math.PI * 2);
-    g.fill();
+    // 실의 꼬임 결
+    g.globalAlpha = 0.22;
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = Math.max(0.5, s * 0.05);
+    for (const off of [-0.18, 0.02, 0.22]) {
+      g.beginPath();
+      g.moveTo(-s * 0.16, s * (off - 0.1));
+      g.lineTo(s * 0.14, s * (off + 0.06));
+      g.stroke();
+    }
     g.restore();
   }
   spriteCache.set(key, c);
@@ -116,12 +151,11 @@ function boardImage(game, s, dpr) {
     t.clearRect(0, 0, board.tmp.width, board.tmp.height);
     const px = Math.max(2, Math.ceil(cs * 1.06));
     const off = (px - cs) / 2;
-    // 고리 사이로 보이는 같은 색의 조금 어두운 바탕
     for (let y = 0; y < game.rows; y++) {
       for (let x = 0; x < game.cols; x++) {
         const c = game.grid[y * game.cols + x];
         if (c < 0) continue;
-        t.fillStyle = shade(game.colors[c], -0.18);
+        t.fillStyle = shade(game.colors[c], -0.25);
         t.fillRect(board.pad + x * cs - 0.5, board.pad + y * cs - 0.5, cs + 1, cs + 1);
       }
     }
@@ -135,9 +169,9 @@ function boardImage(game, s, dpr) {
     const g = board.canvas.getContext('2d');
     g.clearRect(0, 0, board.canvas.width, board.canvas.height);
     g.save();
-    g.shadowColor = THEME.shadow;
-    g.shadowBlur = cs * 0.6;
-    g.shadowOffsetY = cs * 0.25;
+    g.shadowColor = THEME.softShadow;
+    g.shadowBlur = cs * 0.5;
+    g.shadowOffsetY = cs * 0.22;
     g.drawImage(board.tmp, 0, 0);
     g.restore();
   }
@@ -147,120 +181,129 @@ function boardImage(game, s, dpr) {
 // ── 실패(보빈) ─────────────────────────────────────────
 
 function spoolLabel(ctx, text, x, y, size, color) {
-  ctx.font = `700 ${size}px "Fredoka", system-ui, sans-serif`;
+  ctx.font = `600 ${size}px "Outfit", system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = size * 0.26;
-  ctx.strokeStyle = shade(color, -0.5);
+  ctx.lineWidth = size * 0.22;
+  ctx.strokeStyle = shade(color, -0.6);
   ctx.strokeText(text, x, y);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = '#fffaf0';
   ctx.fillText(text, x, y);
 }
 
-/** 대기열·보관함의 실패: 윤기 나는 위 원판에 숫자, 실 감긴 허리, 아래 원판 */
+/** 원판 하나 (옆면 + 윗면). face 는 윗면 칠 */
+function disc(ctx, x, y, R, ry, th, side, face) {
+  ctx.fillStyle = side;
+  ctx.beginPath();
+  ctx.ellipse(x, y + th, R, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(x - R, y, R * 2, th);
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.ellipse(x, y, R, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** 대기열·보관함의 실패: 원목 플랜지, 실크 실, 금테 두른 색 캡에 숫자 */
 function drawSpool(ctx, x, y, R, color, label, dim = 0) {
   const base = dim ? shade(color, -dim) : color;
   const c = (amt) => shade(base, amt);
-  const ry = R * 0.6, th = R * 0.22;
+  const ry = R * 0.6, th = R * 0.2;
   const ty = y - R * 0.5, by = y + R * 0.55;
 
   ctx.beginPath();
-  ctx.ellipse(x, by + th + R * 0.12, R * 1.02, ry * 0.75, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, by + th + R * 0.14, R * 1.05, ry * 0.8, 0, 0, Math.PI * 2);
   ctx.fillStyle = THEME.shadow;
   ctx.fill();
 
-  // 아래 원판
-  ctx.fillStyle = c(-0.3);
-  ctx.beginPath();
-  ctx.ellipse(x, by + th, R, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillRect(x - R, by, R * 2, th);
-  ctx.fillStyle = c(-0.08);
-  ctx.beginPath();
-  ctx.ellipse(x, by, R, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
+  // 아래 원목 플랜지
+  const woodFace = ctx.createLinearGradient(x - R, 0, x + R, 0);
+  woodFace.addColorStop(0, THEME.mapleDark);
+  woodFace.addColorStop(0.4, THEME.maple);
+  woodFace.addColorStop(1, THEME.mapleDark);
+  disc(ctx, x, by, R, ry, th, shade(THEME.mapleDark, -0.3), woodFace);
 
-  // 허리 (실)
-  const w = R * 0.66;
+  // 실크 실
+  const w = R * 0.7;
   const grad = ctx.createLinearGradient(x - w, 0, x + w, 0);
-  grad.addColorStop(0, c(-0.28));
-  grad.addColorStop(0.3, c(0.22));
-  grad.addColorStop(0.6, base);
-  grad.addColorStop(1, c(-0.32));
+  grad.addColorStop(0, c(-0.4));
+  grad.addColorStop(0.28, c(0.25));
+  grad.addColorStop(0.42, c(0.05));
+  grad.addColorStop(1, c(-0.45));
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.rect(x - w, ty, w * 2, by - ty);
-  ctx.ellipse(x, by, w, ry * 0.64, 0, 0, Math.PI);
+  ctx.ellipse(x, by, w, ry * 0.7, 0, 0, Math.PI);
   ctx.fill();
-  ctx.lineWidth = Math.max(1, R * 0.045);
-  for (let i = 1; i <= 4; i++) {
-    const yy = ty + ((by - ty) * i) / 5;
-    ctx.strokeStyle = i % 2 ? c(0.4) : c(-0.25);
-    ctx.globalAlpha = 0.45;
+  ctx.lineWidth = Math.max(0.6, R * 0.025);
+  ctx.strokeStyle = c(-0.3);
+  ctx.globalAlpha = 0.35;
+  for (let i = 1; i < 9; i++) {
+    const yy = ty + ((by - ty) * i) / 9;
     ctx.beginPath();
-    ctx.ellipse(x, yy, w, ry * 0.45, 0, 0.2, Math.PI - 0.2);
+    ctx.ellipse(x, yy, w, ry * 0.55, 0, 0.15, Math.PI - 0.15);
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
-  // 위 원판
-  ctx.fillStyle = c(-0.28);
+  // 위 원목 플랜지 + 금테 색 캡
+  disc(ctx, x, ty, R, ry, th, shade(THEME.mapleDark, -0.25), woodFace);
   ctx.beginPath();
-  ctx.ellipse(x, ty + th, R, ry, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, ty, R * 0.8, ry * 0.8, 0, 0, Math.PI * 2);
+  ctx.fillStyle = goldGradient(ctx, x - R, ty - ry, x + R, ty + ry);
   ctx.fill();
-  ctx.fillRect(x - R, ty, R * 2, th);
-  const top = ctx.createRadialGradient(x - R * 0.3, ty - ry * 0.4, R * 0.05, x, ty, R * 1.05);
-  top.addColorStop(0, c(0.5));
-  top.addColorStop(0.5, base);
-  top.addColorStop(1, c(-0.06));
-  ctx.fillStyle = top;
+  const cap = ctx.createRadialGradient(x - R * 0.25, ty - ry * 0.35, R * 0.05, x, ty, R * 0.75);
+  cap.addColorStop(0, c(0.3));
+  cap.addColorStop(0.6, base);
+  cap.addColorStop(1, c(-0.2));
   ctx.beginPath();
-  ctx.ellipse(x, ty, R, ry, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, ty, R * 0.72, ry * 0.72, 0, 0, Math.PI * 2);
+  ctx.fillStyle = cap;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-  ctx.lineWidth = Math.max(1, R * 0.07);
-  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = Math.max(1, R * 0.04);
   ctx.beginPath();
-  ctx.ellipse(x, ty, R * 0.86, ry * 0.8, 0, Math.PI * 1.1, Math.PI * 1.45);
+  ctx.ellipse(x, ty, R * 0.62, ry * 0.6, 0, Math.PI * 1.1, Math.PI * 1.5);
   ctx.stroke();
 
   if (label !== undefined) {
     const text = String(label);
-    spoolLabel(ctx, text, x, ty + R * 0.04, R * (text.length >= 3 ? 0.6 : 0.76), base);
+    spoolLabel(ctx, text, x, ty + R * 0.03, R * (text.length >= 3 ? 0.56 : 0.7), base);
   }
 }
 
 /** 벨트 위에 누운 실패. fill(0~1)만큼 실이 두툼해진다 */
 function drawBeltSpool(ctx, x, y, h, color, fill, label, alpha = 1) {
-  const fw = h * 0.22, bodyW = h * 0.64;
+  const fw = h * 0.2, bodyW = h * 0.64;
   const bodyH = h * (0.42 + 0.4 * fill);
   ctx.save();
   ctx.globalAlpha = alpha;
 
   ctx.beginPath();
-  ctx.ellipse(x, y + h * 0.5, h * 0.55, h * 0.12, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + h * 0.52, h * 0.58, h * 0.13, 0, 0, Math.PI * 2);
   ctx.fillStyle = THEME.shadow;
   ctx.fill();
 
   const yarn = ctx.createLinearGradient(0, y - bodyH / 2, 0, y + bodyH / 2);
-  yarn.addColorStop(0, shade(color, 0.38));
-  yarn.addColorStop(0.5, color);
-  yarn.addColorStop(1, shade(color, -0.25));
+  yarn.addColorStop(0, shade(color, -0.2));
+  yarn.addColorStop(0.3, shade(color, 0.3));
+  yarn.addColorStop(0.55, color);
+  yarn.addColorStop(1, shade(color, -0.45));
   ctx.beginPath();
-  ctx.roundRect(x - bodyW / 2, y - bodyH / 2, bodyW, bodyH, bodyH * 0.4);
+  ctx.roundRect(x - bodyW / 2, y - bodyH / 2, bodyW, bodyH, bodyH * 0.3);
   ctx.fillStyle = yarn;
   ctx.fill();
   ctx.save();
   ctx.clip();
-  ctx.lineWidth = Math.max(1, h * 0.045);
-  for (let i = -4; i <= 4; i++) {
-    const xx = x + i * h * 0.11;
-    ctx.strokeStyle = i % 2 ? shade(color, 0.45) : shade(color, -0.2);
-    ctx.globalAlpha = alpha * 0.45;
+  ctx.lineWidth = Math.max(0.6, h * 0.025);
+  ctx.strokeStyle = shade(color, -0.3);
+  ctx.globalAlpha = alpha * 0.35;
+  for (let i = -8; i <= 8; i++) {
+    const xx = x + i * h * 0.05;
     ctx.beginPath();
-    ctx.moveTo(xx - h * 0.1, y - bodyH / 2);
-    ctx.lineTo(xx + h * 0.1, y + bodyH / 2);
+    ctx.moveTo(xx - h * 0.04, y - bodyH / 2);
+    ctx.lineTo(xx + h * 0.04, y + bodyH / 2);
     ctx.stroke();
   }
   ctx.restore();
@@ -268,69 +311,86 @@ function drawBeltSpool(ctx, x, y, h, color, fill, label, alpha = 1) {
   for (const side of [-1, 1]) {
     const fx = x + side * (bodyW / 2 + fw / 2);
     const g = ctx.createLinearGradient(fx - fw / 2, 0, fx + fw / 2, 0);
-    g.addColorStop(0, shade(color, -0.25));
-    g.addColorStop(0.45, shade(color, 0.35));
-    g.addColorStop(1, shade(color, -0.3));
+    g.addColorStop(0, THEME.mapleDark);
+    g.addColorStop(0.45, THEME.maple);
+    g.addColorStop(1, shade(THEME.mapleDark, -0.25));
     ctx.beginPath();
-    ctx.roundRect(fx - fw / 2, y - h / 2, fw, h, fw * 0.5);
+    ctx.roundRect(fx - fw / 2, y - h / 2, fw, h, fw * 0.45);
     ctx.fillStyle = g;
     ctx.fill();
   }
 
-  if (label !== undefined) spoolLabel(ctx, String(label), x, y - h * 0.72, h * 0.5, color);
+  if (label !== undefined) spoolLabel(ctx, String(label), x, y - h * 0.72, h * 0.48, color);
   ctx.restore();
 }
 
 // ── 판 ─────────────────────────────────────────────────
 
-/** 벨트와 그림을 올려 두는 흰 쿠션 카드, 그 안쪽의 천과 바느질 선 */
+/** 호두나무 액자, 금빛 안쪽 선, 리넨 천 */
 function drawBoardCard(ctx, game, X, Y, s) {
   const { G, trackW, cols: C, rows: R, k } = game;
   const out = G + trackW * 0.5 + 0.32 * k;
   const r = (1.1 * k + trackW * 0.5 + 0.32 * k) * s;
+  const fx = X(-out), fy = Y(-out), fw = (C + out * 2) * s, fh = (R + out * 2) * s;
 
   ctx.save();
   ctx.shadowColor = THEME.shadow;
-  ctx.shadowBlur = 0.8 * k * s;
-  ctx.shadowOffsetY = 0.25 * k * s;
+  ctx.shadowBlur = 1.2 * k * s;
+  ctx.shadowOffsetY = 0.4 * k * s;
   ctx.beginPath();
-  ctx.roundRect(X(-out), Y(-out), (C + out * 2) * s, (R + out * 2) * s, r);
-  ctx.fillStyle = THEME.card;
+  ctx.roundRect(fx, fy, fw, fh, r);
+  ctx.fillStyle = THEME.woodDark;
   ctx.fill();
   ctx.restore();
-  ctx.strokeStyle = THEME.cardEdge;
-  ctx.lineWidth = Math.max(1, 0.05 * k * s);
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(fx, fy, fw, fh, r);
+  ctx.fillStyle = woodTexture(ctx);
+  ctx.fill();
+  // 위쪽 빛 반사와 아래쪽 그늘
+  const light = ctx.createLinearGradient(0, fy, 0, fy + fh);
+  light.addColorStop(0, 'rgba(255,230,190,0.18)');
+  light.addColorStop(0.5, 'rgba(255,230,190,0)');
+  light.addColorStop(1, 'rgba(20,10,5,0.25)');
+  ctx.fillStyle = light;
+  ctx.fill();
+  ctx.strokeStyle = THEME.woodEdge;
+  ctx.lineWidth = Math.max(1, 0.06 * k * s);
   ctx.stroke();
+  ctx.restore();
 
-  // 벨트 안쪽 천
+  // 리넨 천
   const inset = G - trackW * 0.4;
   const x0 = X(-inset), y0 = Y(-inset), x1 = X(C + inset), y1 = Y(R + inset);
   const ri = Math.max(2, (1.1 * k - trackW * 0.4) * s);
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(x0, y0, x1 - x0, y1 - y0, ri);
-  ctx.fillStyle = THEME.cloth;
+  ctx.fillStyle = THEME.linen;
   ctx.fill();
   ctx.clip();
-  ctx.fillStyle = THEME.clothGrid;
-  const dot = Math.max(1, s * 0.12);
-  for (let y = Math.ceil(-inset); y <= R + inset; y++) {
-    for (let x = Math.ceil(-inset); x <= C + inset; x++) {
-      ctx.fillRect(X(x) - dot / 2, Y(y) - dot / 2, dot, dot);
-    }
-  }
+  ctx.strokeStyle = THEME.linenWeave;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const step = Math.max(2, s * 0.5);
+  for (let x = x0; x <= x1; x += step) { ctx.moveTo(Math.round(x) + 0.5, y0); ctx.lineTo(Math.round(x) + 0.5, y1); }
+  for (let y = y0; y <= y1; y += step) { ctx.moveTo(x0, Math.round(y) + 0.5); ctx.lineTo(x1, Math.round(y) + 0.5); }
+  ctx.stroke();
+  // 가장자리 안쪽 그늘
+  const vg = ctx.createRadialGradient((x0 + x1) / 2, (y0 + y1) / 2, Math.min(x1 - x0, y1 - y0) * 0.35,
+    (x0 + x1) / 2, (y0 + y1) / 2, Math.max(x1 - x0, y1 - y0) * 0.75);
+  vg.addColorStop(0, 'rgba(90,60,30,0)');
+  vg.addColorStop(1, 'rgba(90,60,30,0.18)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
   ctx.restore();
 
-  // 바느질 점선
-  const m = 0.28 * k * s;
+  // 금빛 안쪽 선
   ctx.beginPath();
-  ctx.roundRect(x0 + m, y0 + m, x1 - x0 - m * 2, y1 - y0 - m * 2, Math.max(2, ri - m));
-  ctx.setLineDash([0.32 * k * s, 0.22 * k * s]);
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = THEME.seam;
-  ctx.lineWidth = Math.max(1.5, 0.08 * k * s);
+  ctx.roundRect(x0, y0, x1 - x0, y1 - y0, ri);
+  ctx.strokeStyle = goldGradient(ctx, x0, y0, x1, y1);
+  ctx.lineWidth = Math.max(1.5, 0.09 * k * s);
   ctx.stroke();
-  ctx.setLineDash([]);
 }
 
 // ── 벨트 ───────────────────────────────────────────────
@@ -349,85 +409,85 @@ function trackPath(ctx, game, X, Y, s) {
 
 function drawTrack(ctx, game, X, Y, s) {
   const tw = game.trackW * s;
+  const { G, cols: C, rows: R } = game;
   ctx.save();
   ctx.lineCap = 'butt';
   ctx.lineJoin = 'round';
 
-  const layers = [
-    [THEME.railEdge, 1.0],
-    [THEME.rail, 0.9],
-    [THEME.railEdge, 0.66],
-    [THEME.groove, 0.6],
-    [THEME.grooveMid, 0.36],
-  ];
-  for (const [color, wf] of layers) {
-    trackPath(ctx, game, X, Y, s);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = tw * wf;
-    ctx.stroke();
-  }
+  // 황동 레일
   trackPath(ctx, game, X, Y, s);
-  ctx.setLineDash([Math.max(1, tw * 0.05), tw * 0.8]);
-  ctx.strokeStyle = THEME.tileSeam;
-  ctx.lineWidth = tw * 0.6;
+  ctx.strokeStyle = THEME.goldDark;
+  ctx.lineWidth = tw;
+  ctx.stroke();
+  trackPath(ctx, game, X, Y, s);
+  ctx.strokeStyle = goldGradient(ctx, X(-G), Y(-G), X(C + G), Y(R + G));
+  ctx.lineWidth = tw * 0.9;
+  ctx.stroke();
+  // 홈
+  trackPath(ctx, game, X, Y, s);
+  ctx.strokeStyle = THEME.groove;
+  ctx.lineWidth = tw * 0.64;
+  ctx.stroke();
+  trackPath(ctx, game, X, Y, s);
+  ctx.strokeStyle = THEME.grooveMid;
+  ctx.lineWidth = tw * 0.4;
+  ctx.stroke();
+  trackPath(ctx, game, X, Y, s);
+  ctx.setLineDash([Math.max(1, tw * 0.04), tw * 0.7]);
+  ctx.strokeStyle = 'rgba(216,180,106,0.25)';
+  ctx.lineWidth = tw * 0.64;
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // 입구 양 끝 마개
-  const L = X(-game.G), B = Y(game.rows + game.G), g = game.gap * s;
+  // 입구 양 끝 황동 마개
+  const L = X(-G), B = Y(R + G), g = game.gap * s;
   const cap = (cx, cy, w, h) => {
-    const grad = ctx.createLinearGradient(cx, cy - h / 2, cx, cy + h / 2);
-    grad.addColorStop(0, THEME.capTop);
-    grad.addColorStop(1, THEME.capBottom);
     ctx.beginPath();
-    ctx.roundRect(cx - w / 2, cy - h / 2, w, h, Math.min(w, h) * 0.45);
-    ctx.fillStyle = grad;
+    ctx.roundRect(cx - w / 2, cy - h / 2, w, h, Math.min(w, h) * 0.5);
+    ctx.fillStyle = goldGradient(ctx, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
     ctx.fill();
-    ctx.strokeStyle = THEME.capEdge;
+    ctx.strokeStyle = shade(THEME.goldDark, -0.3);
     ctx.lineWidth = Math.max(1, tw * 0.05);
     ctx.stroke();
   };
-  cap(L, B - g, tw * 1.08, tw * 0.38);
-  cap(L + g, B, tw * 0.38, tw * 1.08);
+  cap(L, B - g, tw * 1.08, tw * 0.36);
+  cap(L + g, B, tw * 0.36, tw * 1.08);
   ctx.restore();
 }
 
-/** 입구 옆의 벨트 카운터 */
+/** 입구 옆의 벨트 카운터: 황동 명판 */
 function drawBadge(ctx, game, X, Y, s) {
   const { k } = game;
   const cx = X(-game.G - 0.35 * k), cy = Y(game.rows + game.G + 0.85 * k);
-  const w = 1.6 * k * s, h = 0.95 * k * s;
+  const w = 1.6 * k * s, h = 0.9 * k * s;
   const full = game.beltCount >= game.beltCap;
 
   ctx.save();
   ctx.shadowColor = THEME.shadow;
-  ctx.shadowBlur = h * 0.4;
-  ctx.shadowOffsetY = h * 0.12;
+  ctx.shadowBlur = h * 0.5;
+  ctx.shadowOffsetY = h * 0.15;
   ctx.beginPath();
-  ctx.roundRect(cx - w / 2, cy - h / 2, w, h, h / 2);
-  ctx.fillStyle = '#ffffff';
+  ctx.roundRect(cx - w / 2, cy - h / 2, w, h, h * 0.3);
+  ctx.fillStyle = goldGradient(ctx, cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
   ctx.fill();
   ctx.restore();
-
-  const scr = ctx.createLinearGradient(0, cy - h / 2, 0, cy + h / 2);
-  scr.addColorStop(0, full ? THEME.badgeFullTop : THEME.badgeTop);
-  scr.addColorStop(1, full ? THEME.badgeFullBottom : THEME.badgeBottom);
-  const p = h * 0.12;
+  const p = h * 0.1;
   ctx.beginPath();
-  ctx.roundRect(cx - w / 2 + p, cy - h / 2 + p, w - p * 2, h - p * 2, (h - p * 2) / 2);
-  ctx.fillStyle = scr;
+  ctx.roundRect(cx - w / 2 + p, cy - h / 2 + p, w - p * 2, h - p * 2, h * 0.22);
+  ctx.fillStyle = full ? '#5a1d1d' : '#1d2a33';
   ctx.fill();
 
-  ctx.font = `700 ${h * 0.48}px "Fredoka", system-ui, sans-serif`;
+  ctx.font = `600 ${h * 0.46}px "Outfit", system-ui, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#fff';
+  ctx.fillStyle = full ? '#ffb4a8' : THEME.goldLight;
   ctx.fillText(`${game.beltCount}/${game.beltCap}`, cx, cy + h * 0.03);
 }
 
 // ── 파티클 ─────────────────────────────────────────────
 
 const particles = [];
+const SPARKLE = ['#f3dca0', '#d8b46a', '#fffaf0'];
 
 export const fx = {
   /** 스티치가 뽑힐 때 실 보푸라기 */
@@ -437,24 +497,25 @@ export const fx = {
       particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0, life: 0, max: 0.35, color, r: 0.18, kind: 'dot' });
     }
   },
-  /** 실패를 다 채웠을 때 반짝이 */
+  /** 실패를 다 채웠을 때 금빛 반짝이 */
   burst(x, y, color, k) {
     for (let i = 0; i < 18; i++) {
       const a = Math.random() * Math.PI * 2, v = (2 + Math.random() * 4) * k;
       particles.push({
         x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 2 * k, g: 9 * k, life: 0, max: 0.6 + Math.random() * 0.3,
-        color: i % 3 ? color : '#ffffff', r: (0.1 + Math.random() * 0.12) * k, kind: i % 2 ? 'star' : 'dot',
+        color: i % 3 ? SPARKLE[i % SPARKLE.length] : color, r: (0.1 + Math.random() * 0.12) * k, kind: i % 2 ? 'star' : 'dot',
       });
     }
   },
-  /** 완성 축하 꽃가루 */
+  /** 완성 축하: 그림 색과 금색 꽃가루 */
   confetti(game, colors) {
     const { k } = game;
+    const all = [...colors, ...SPARKLE];
     for (let i = 0; i < 140; i++) {
       particles.push({
         x: Math.random() * game.cols, y: -game.G - Math.random() * 6 * k,
         vx: (Math.random() - 0.5) * 4 * k, vy: Math.random() * 3 * k, g: 6 * k,
-        life: 0, max: 2.2 + Math.random(), color: colors[i % colors.length],
+        life: 0, max: 2.2 + Math.random(), color: all[i % all.length],
         r: (0.16 + Math.random() * 0.14) * k, kind: 'paper', spin: Math.random() * 10, rot: Math.random() * 6,
       });
     }
@@ -530,7 +591,7 @@ export function draw(ctx, game, view, time, dt) {
     ctx.moveTo(X(tx), Y(ty));
     ctx.quadraticCurveTo(X(mx), Y(my), X(px), Y(py));
     ctx.strokeStyle = game.colors[f.color];
-    ctx.lineWidth = Math.max(1.5, s * 0.18);
+    ctx.lineWidth = Math.max(1.2, s * 0.14);
     ctx.lineCap = 'round';
     ctx.stroke();
     const size = s * (1.15 - t * 0.6);
@@ -539,20 +600,21 @@ export function draw(ctx, game, view, time, dt) {
 
   drawBadge(ctx, game, X, Y, s);
 
-  // 보관함
+  // 보관함: 벨벳 홈에 금빛 테두리
   const sw = game.slotW * s;
   game.slots.forEach((_, i) => {
     const p = game.slotPos(i);
+    const x0 = X(p.x) - sw / 2, y0 = Y(p.y) - sw * 0.5;
     ctx.beginPath();
-    ctx.roundRect(X(p.x) - sw / 2, Y(p.y) - sw * 0.5, sw, sw, sw * 0.28);
-    ctx.fillStyle = THEME.slot;
+    ctx.roundRect(x0, y0, sw, sw, sw * 0.2);
+    const well = ctx.createLinearGradient(0, y0, 0, y0 + sw);
+    well.addColorStop(0, 'rgba(0,0,0,0.55)');
+    well.addColorStop(1, 'rgba(0,0,0,0.25)');
+    ctx.fillStyle = well;
     ctx.fill();
-    ctx.setLineDash([sw * 0.1, sw * 0.08]);
-    ctx.lineCap = 'round';
     ctx.strokeStyle = THEME.slotEdge;
-    ctx.lineWidth = Math.max(1.5, s * 0.08);
+    ctx.lineWidth = Math.max(1, s * 0.06);
     ctx.stroke();
-    ctx.setLineDash([]);
   });
 
   const wobble = (b) => (b.shake > 0 ? Math.sin(b.shake * 60) * 0.12 * k * (b.shake / 0.35) : 0);
@@ -566,15 +628,15 @@ export function draw(ctx, game, view, time, dt) {
   game.queues.forEach((q, qi) => {
     for (let row = 0; row < Math.min(q.length, 3); row++) {
       const b = q[row];
-      drawSpool(ctx, X(b.x + wobble(b)), Y(b.y), park, game.colors[b.color], b.remaining, row * 0.05);
+      drawSpool(ctx, X(b.x + wobble(b)), Y(b.y), park, game.colors[b.color], b.remaining, row * 0.06);
     }
     if (q.length > 3) {
       const p = game.supplyPos(qi, 2);
-      ctx.font = `700 ${Math.round(park * 0.6)}px "Fredoka", system-ui, sans-serif`;
+      ctx.font = `500 ${Math.round(park * 0.55)}px "Outfit", system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = THEME.ink;
-      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = THEME.gold;
+      ctx.globalAlpha = 0.75;
       ctx.fillText(`+${q.length - 3}`, X(p.x), Y(p.y) + park * 1.85);
       ctx.globalAlpha = 1;
     }

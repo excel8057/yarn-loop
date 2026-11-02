@@ -28,7 +28,7 @@ const ART = {
   target: () => paint(22, 22, (u, v) => {
     const d = Math.max(Math.abs(u), Math.abs(v), (Math.abs(u) + Math.abs(v)) / 1.38);
     if (d > 1) return;
-    if (d < 0.14) return 'D';
+    if (d < 0.14) return 'Y';
     return Math.floor(d * 7.5) % 2 ? 'W' : 'V';
   }),
 
