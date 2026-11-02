@@ -13,18 +13,37 @@
 </head>
 <body>
   <header id="hud">
-    <button id="btn-levels" class="icon-btn" aria-label="레벨 선택">☰</button>
+    <button id="btn-home" class="icon-btn" aria-label="시작 화면">⌂</button>
     <div class="title">
       <span id="lv-label">Lv.1</span>
       <span id="lv-name"></span>
       <div class="progress"><div id="progress-fill"></div></div>
     </div>
-    <button id="btn-ranking" class="icon-btn" aria-label="랭킹" hidden>🏆</button>
-    <button id="btn-account" class="icon-btn account" aria-label="구글 계정" hidden>👤</button>
     <button id="btn-mute" class="icon-btn" aria-label="소리 켜기/끄기">🔊</button>
     <button id="btn-restart" class="icon-btn" aria-label="다시 시작">↻</button>
   </header>
   <canvas id="cv"></canvas>
+
+  <section id="start" hidden>
+    <div class="start-wrap">
+      <header class="logo">
+        <div class="logo-rule"><span></span>✦<span></span></div>
+        <h1>Yarn Loop</h1>
+        <p class="tagline">실을 감아 완성하는 뜨개 퍼즐</p>
+      </header>
+      <canvas id="preview" aria-hidden="true"></canvas>
+      <p id="start-progress" class="start-progress"></p>
+      <div class="start-actions">
+        <button id="start-play" class="btn primary big"></button>
+        <div class="start-row">
+          <button id="start-levels" class="btn">레벨 선택</button>
+          <button id="start-ranking" class="btn" hidden>🏆 랭킹</button>
+        </div>
+        <button id="start-account" class="account-chip" hidden></button>
+      </div>
+    </div>
+  </section>
+
   <div id="toast" role="status"></div>
   <div id="overlay" hidden><div class="card"></div></div>
   <script type="module" src="src/main.js"></script>

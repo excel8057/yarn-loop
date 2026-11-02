@@ -838,6 +838,29 @@ function drawParticles(ctx, dt, X, Y, s) {
 
 // ── 전체 장면 ──────────────────────────────────────────
 
+/** 시작 화면의 미리보기: 액자·레일·뜨개 그림만 canvas 크기에 맞춰 그린다 */
+export function drawPreview(canvas, game, dpr) {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const { G, trackW, cols: C, rows: R, k } = game;
+  const out = G + trackW * 0.5 + 0.32 * k;
+  const pad = 14;
+  const s = Math.min((w - pad * 2) / (C + out * 2), (h - pad * 2) / (R + out * 2));
+  const ox = w / 2 - (C / 2) * s, oy = h / 2 - (R / 2) * s;
+  const X = (wx) => ox + wx * s;
+  const Y = (wy) => oy + wy * s;
+  spoolDpr = dpr;
+  drawBoardCard(ctx, game, X, Y, s);
+  drawTrack(ctx, game, X, Y, s);
+  const img = boardImage(game, s, dpr);
+  ctx.drawImage(img.canvas, X(0) - img.pad / dpr, Y(0) - img.pad / dpr, img.canvas.width / dpr, img.canvas.height / dpr);
+}
+
 export function draw(ctx, game, view, time, dt) {
   const { s, ox, oy, dpr } = view;
   spoolDpr = dpr;

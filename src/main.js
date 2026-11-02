@@ -1,7 +1,7 @@
 import { Game } from './game.js';
 import { getLevel, TOTAL_LEVELS } from './levels.js';
 import { isHardLevel } from './generator.js';
-import { computeView, draw, fx } from './render.js';
+import { computeView, draw, drawPreview, fx } from './render.js';
 import { unlock, sfx, setMuted, isMuted } from './audio.js';
 import {
   cloud, initCloud, signIn, signOut, loadProgress, saveProgress,
@@ -38,6 +38,7 @@ let levelIndex = levelParam > 0 ? Math.min(levelParam, TOTAL_LEVELS) - 1 : Math.
 let game;
 let view;
 let toastTimer = 0;
+let startOpen = false;
 setMuted(store.get('muted', false));
 
 function startLevel(i) {
@@ -52,6 +53,34 @@ function startLevel(i) {
   resize();
 }
 
+// ── 시작 화면 ──────────────────────────────────────────
+
+/** 이어하기 버튼과 미리보기를 지금 진행도에 맞춘다 */
+function refreshStart() {
+  const hasProgress = unlocked > 0 || levelIndex > 0;
+  $('start-play').innerHTML = `${hasProgress ? '이어하기' : '시작하기'}<small>Lv.${levelIndex + 1} · ${escapeHtml(getLevel(levelIndex).name)}</small>`;
+  $('start-progress').textContent = hasProgress
+    ? `${Math.min(unlocked, TOTAL_LEVELS)} / ${TOTAL_LEVELS} 스테이지 완료`
+    : `${TOTAL_LEVELS}개의 뜨개 그림이 기다리고 있어요`;
+  drawPreview($('preview'), game, Math.min(window.devicePixelRatio || 1, 2));
+}
+
+function showStart() {
+  startOpen = true;
+  hideOverlay();
+  $('start').hidden = false;
+  hud.style.visibility = 'hidden';
+  refreshStart();
+}
+
+function hideStart() {
+  if (!startOpen) return;
+  startOpen = false;
+  $('start').hidden = true;
+  hud.style.visibility = '';
+  resize();
+}
+
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = window.innerWidth, h = window.innerHeight;
@@ -61,6 +90,7 @@ function resize() {
   canvas.style.height = `${h}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (game) view = computeView(game, w, h, hud.offsetHeight + 4, dpr);
+  if (startOpen) refreshStart();
 }
 
 function toast(msg) {
@@ -134,14 +164,17 @@ function showLevels() {
     [['닫기', hideOverlay, false]],
   );
   overlay.querySelectorAll('[data-lv]').forEach((b) =>
-    b.addEventListener('click', () => startLevel(Number(b.dataset.lv))));
+    b.addEventListener('click', () => {
+      hideStart();
+      startLevel(Number(b.dataset.lv));
+    }));
   overlay.querySelector('.lv.current')?.scrollIntoView({ block: 'center' });
 }
 
 // ── 구글 계정 ──────────────────────────────────────────
 
-const accountBtn = $('btn-account');
-const rankingBtn = $('btn-ranking');
+const accountBtn = $('start-account');
+const rankingBtn = $('start-ranking');
 const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 /** @type {null | { name: string, cleared: number, reachedAt: number }} 내 랭킹 기록 */
 let myRank = null;
@@ -174,12 +207,18 @@ async function login() {
   }
 }
 
+/** 시작 화면 아래 계정 칩: 로그인 전엔 로그인 안내, 후엔 프로필과 닉네임 */
 function renderAccountButton() {
   const u = cloud.user;
-  accountBtn.innerHTML = u?.photoURL
-    ? `<img src="${escapeHtml(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
-    : '👤';
   accountBtn.classList.toggle('signed-in', Boolean(u));
+  if (!u) {
+    accountBtn.innerHTML = '<span class="g">G</span><span>Google 로그인하고 진행도 저장</span>';
+    return;
+  }
+  const photo = u.photoURL
+    ? `<img src="${escapeHtml(u.photoURL)}" alt="" referrerpolicy="no-referrer">`
+    : '<span class="g">👤</span>';
+  accountBtn.innerHTML = `${photo}<span>${escapeHtml(myRank?.name ?? defaultNickname(u.uid))}</span><small>클라우드 저장 중</small>`;
 }
 
 /** 로그인하면 클라우드 진행도와 합친다. 더 많이 깬 쪽을 따른다 */
@@ -199,6 +238,8 @@ async function onUser(user) {
     }
     myRank = await loadMyRank();
     syncRank();
+    renderAccountButton();
+    if (startOpen) refreshStart();
   } catch {
     toast('진행도를 불러오지 못했어요');
   }
@@ -249,6 +290,7 @@ function saveNickname() {
   } else {
     syncRank(true);
     toast('닉네임을 저장했어요');
+    renderAccountButton();
   }
   hideOverlay();
 }
@@ -317,6 +359,8 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  requestAnimationFrame(frame);
+  if (startOpen) return; // 시작 화면에서는 게임을 멈추고 미리보기만 보여 준다
   const slotsBefore = game.slots.length;
   game.update(dt);
   if (game.slots.length !== slotsBefore) resize();
@@ -325,7 +369,6 @@ function frame(now) {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   draw(ctx, game, view, now / 1000, dt);
-  requestAnimationFrame(frame);
 }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -335,7 +378,12 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 $('btn-restart').addEventListener('click', () => startLevel(levelIndex));
-$('btn-levels').addEventListener('click', showLevels);
+$('btn-home').addEventListener('click', showStart);
+$('start-play').addEventListener('click', () => {
+  unlock();
+  hideStart();
+});
+$('start-levels').addEventListener('click', showLevels);
 const muteBtn = $('btn-mute');
 const syncMute = () => { muteBtn.textContent = isMuted() ? '🔇' : '🔊'; };
 muteBtn.addEventListener('click', () => {
@@ -349,10 +397,13 @@ window.addEventListener('resize', resize);
 
 startLevel(levelIndex);
 requestAnimationFrame(frame);
+// 각자 브라우저(로그인하면 계정)에 저장된 곳부터 이어 하도록 시작 화면부터 보여 준다
+if (!(levelParam > 0)) showStart();
 
 if (cloud.enabled) {
   accountBtn.hidden = false;
   rankingBtn.hidden = false;
+  renderAccountButton();
   accountBtn.addEventListener('click', showAccount);
   rankingBtn.addEventListener('click', showRanking);
   initCloud(onUser).catch(() => {
