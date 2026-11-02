@@ -86,43 +86,104 @@ function goldGradient(ctx, x0, y0, x1, y1) {
 
 // ── 스티치 ─────────────────────────────────────────────
 
+// 스티치는 칸보다 크게 그려 위아래 이웃과 겹치게 한다 (아랫줄 고리가 윗줄을 덮는 니트 구조)
+const SPRITE_SCALE = 1.5;
+const VARIANTS = 3;
 const spriteCache = new Map();
 
-/** 울 니트 스티치 한 칸(V자 두 고리): 은은한 광택만 남긴 무광 질감 */
-function stitchSprite(color, px) {
-  const key = `${color}@${px}`;
+/**
+ * 니트 스티치 한 칸: 두 가닥이 꼬인 실 고리 두 개가 V자로 맞물린 모양.
+ * 왼쪽 위 조명 기준의 원통 음영, 꼬임 결, 보풀, 아래로 떨어지는 그림자를 스프라이트에 굽는다.
+ * px 는 한 칸의 픽셀 크기. variant 마다 꼬임 위치와 색조가 조금씩 달라 손뜨개처럼 보인다.
+ */
+function stitchSprite(color, px, variant = 0) {
+  const key = `${color}@${px}#${variant}`;
   let c = spriteCache.get(key);
   if (c) return c;
-  c = document.createElement('canvas');
-  c.width = c.height = px;
+  const size = Math.ceil(px * SPRITE_SCALE);
+  c = Object.assign(document.createElement('canvas'), { width: size, height: size });
   const g = c.getContext('2d');
   const s = px;
+  let seed = variant * 7919 + 17;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const tint = shade(color, [0, 0.05, -0.05][variant % 3]);
+  g.translate(size / 2, size / 2);
+
   for (const side of [-1, 1]) {
     g.save();
-    g.translate(s * (0.5 + side * 0.23), s * 0.5);
-    g.rotate(side * 0.38);
-    const grad = g.createLinearGradient(0, -s * 0.5, 0, s * 0.5);
-    grad.addColorStop(0, shade(color, 0.2));
-    grad.addColorStop(0.5, color);
-    grad.addColorStop(1, shade(color, -0.18));
-    g.beginPath();
-    g.ellipse(0, 0, s * 0.28, s * 0.53, 0, 0, Math.PI * 2);
-    g.fillStyle = grad;
-    g.fill();
-    g.lineWidth = Math.max(0.5, s * 0.04);
-    g.strokeStyle = shade(color, -0.35);
-    g.globalAlpha = 0.5;
-    g.stroke();
-    // 실의 꼬임 결
-    g.globalAlpha = 0.22;
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = Math.max(0.5, s * 0.05);
-    for (const off of [-0.18, 0.02, 0.22]) {
+    g.translate(side * s * 0.215, s * 0.02);
+    g.rotate(side * 0.42);
+    const rx = s * 0.25, ry = s * 0.6;
+    const arm = () => {
       g.beginPath();
-      g.moveTo(-s * 0.16, s * (off - 0.1));
-      g.lineTo(s * 0.14, s * (off + 0.06));
+      g.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    };
+
+    // 아래로 떨어지는 그림자: 고리가 천에서 떠 있는 깊이
+    g.save();
+    g.shadowColor = 'rgba(20, 10, 5, 0.55)';
+    g.shadowBlur = s * 0.18;
+    g.shadowOffsetX = s * 0.03;
+    g.shadowOffsetY = s * 0.09;
+    arm();
+    g.fillStyle = shade(tint, -0.35);
+    g.fill();
+    g.restore();
+
+    // 원통 음영: 폭 방향으로 왼쪽은 밝고 오른쪽은 어둡게
+    const cyl = g.createLinearGradient(-rx, 0, rx, 0);
+    cyl.addColorStop(0, shade(tint, -0.22));
+    cyl.addColorStop(0.28, shade(tint, 0.24));
+    cyl.addColorStop(0.55, tint);
+    cyl.addColorStop(1, shade(tint, -0.42));
+    arm();
+    g.fillStyle = cyl;
+    g.fill();
+
+    g.save();
+    arm();
+    g.clip();
+    // 길이 방향: 아래 끝은 다음 고리 밑으로 파고들며 어두워진다
+    const len = g.createLinearGradient(0, -ry, 0, ry);
+    len.addColorStop(0, 'rgba(255,245,230,0.12)');
+    len.addColorStop(0.55, 'rgba(0,0,0,0)');
+    len.addColorStop(1, 'rgba(20,10,5,0.38)');
+    g.fillStyle = len;
+    g.fillRect(-rx, -ry, rx * 2, ry * 2);
+    // 꼬임 결: 비스듬한 가닥 사이 홈(어둡게)과 가닥 등(밝게)
+    const step = ry * 0.4;
+    const phase = rnd() * step;
+    for (let yy = -ry - step + phase; yy < ry + step; yy += step) {
+      g.beginPath();
+      g.moveTo(-rx * 1.1, yy + rx * 0.75);
+      g.quadraticCurveTo(0, yy + rx * 0.1, rx * 1.1, yy - rx * 0.75);
+      g.strokeStyle = shade(tint, -0.5);
+      g.globalAlpha = 0.5;
+      g.lineWidth = Math.max(0.6, s * 0.035);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(-rx * 1.1, yy + rx * 0.75 + step * 0.4);
+      g.quadraticCurveTo(0, yy + rx * 0.1 + step * 0.4, rx * 1.1, yy - rx * 0.75 + step * 0.4);
+      g.strokeStyle = shade(tint, 0.5);
+      g.globalAlpha = 0.28;
+      g.lineWidth = Math.max(0.6, s * 0.05);
       g.stroke();
     }
+    // 보풀
+    g.globalAlpha = 0.2;
+    g.fillStyle = '#fffaf0';
+    for (let i = 0; i < 6; i++) {
+      g.beginPath();
+      g.arc((rnd() - 0.5) * rx * 1.6, (rnd() - 0.5) * ry * 1.6, Math.max(0.4, s * 0.016), 0, Math.PI * 2);
+      g.fill();
+    }
+    g.restore();
+
+    // 광택
+    g.beginPath();
+    g.ellipse(-rx * 0.38, -ry * 0.22, rx * 0.16, ry * 0.36, 0, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(255,250,240,0.2)';
+    g.fill();
     g.restore();
   }
   spriteCache.set(key, c);
@@ -139,7 +200,7 @@ function boardImage(game, s, dpr) {
     board.game = game;
     board.key = key;
     board.version = -1;
-    board.pad = Math.ceil(cs * 1.5);
+    board.pad = Math.ceil(cs * 2);
     const w = Math.ceil(game.cols * cs) + board.pad * 2;
     const h = Math.ceil(game.rows * cs) + board.pad * 2;
     board.canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
@@ -148,30 +209,57 @@ function boardImage(game, s, dpr) {
   if (board.version !== game.version) {
     board.version = game.version;
     const t = board.tmp.getContext('2d');
+    const { pad } = board;
     t.clearRect(0, 0, board.tmp.width, board.tmp.height);
-    const px = Math.max(2, Math.ceil(cs * 1.06));
-    const off = (px - cs) / 2;
+    const px = Math.max(3, Math.round(cs));
+    const sp = Math.ceil(px * SPRITE_SCALE) * (cs / px);
+    // 고리 사이로 보이는 깊은 틈. 이웃이 없는 면은 안쪽으로 줄여 윤곽이 각지지 않게 한다
+    const filled = (x, y) => x >= 0 && x < game.cols && y >= 0 && y < game.rows && game.grid[y * game.cols + x] >= 0;
     for (let y = 0; y < game.rows; y++) {
       for (let x = 0; x < game.cols; x++) {
         const c = game.grid[y * game.cols + x];
         if (c < 0) continue;
-        t.fillStyle = shade(game.colors[c], -0.25);
-        t.fillRect(board.pad + x * cs - 0.5, board.pad + y * cs - 0.5, cs + 1, cs + 1);
+        const l = filled(x - 1, y) ? -0.5 : cs * 0.14;
+        const r = filled(x + 1, y) ? -0.5 : cs * 0.14;
+        const u = filled(x, y - 1) ? -0.5 : cs * 0.2;
+        const d = filled(x, y + 1) ? -0.5 : cs * 0.12;
+        t.fillStyle = shade(game.colors[c], -0.62);
+        t.fillRect(pad + x * cs + l, pad + y * cs + u, cs - l - r, cs - u - d);
       }
     }
+    // 윗줄부터 그려서 아랫줄 고리가 윗줄 끝을 덮게 한다
     for (let y = 0; y < game.rows; y++) {
       for (let x = 0; x < game.cols; x++) {
         const c = game.grid[y * game.cols + x];
         if (c < 0) continue;
-        t.drawImage(stitchSprite(game.colors[c], px), board.pad + x * cs - off, board.pad + y * cs - off);
+        const v = (((x * 73856093) ^ (y * 19349663)) >>> 0) % VARIANTS;
+        t.drawImage(stitchSprite(game.colors[c], px, v), pad + (x + 0.5) * cs - sp / 2, pad + (y + 0.5) * cs - sp / 2, sp, sp);
       }
     }
+    // 작품 전체에 왼쪽 위 조명
+    t.save();
+    t.globalCompositeOperation = 'source-atop';
+    const lightGrad = t.createLinearGradient(pad, pad, pad + game.cols * cs, pad + game.rows * cs);
+    lightGrad.addColorStop(0, 'rgba(255,240,215,0.12)');
+    lightGrad.addColorStop(0.5, 'rgba(255,240,215,0)');
+    lightGrad.addColorStop(1, 'rgba(10,5,0,0.16)');
+    t.fillStyle = lightGrad;
+    t.fillRect(0, 0, board.tmp.width, board.tmp.height);
+    t.restore();
+
+    // 천 위에 떠 있는 느낌: 넓고 부드러운 그림자 + 가까운 접지 그림자
     const g = board.canvas.getContext('2d');
     g.clearRect(0, 0, board.canvas.width, board.canvas.height);
     g.save();
-    g.shadowColor = THEME.softShadow;
-    g.shadowBlur = cs * 0.5;
-    g.shadowOffsetY = cs * 0.22;
+    g.shadowColor = 'rgba(40, 24, 10, 0.4)';
+    g.shadowBlur = cs * 0.9;
+    g.shadowOffsetX = cs * 0.15;
+    g.shadowOffsetY = cs * 0.4;
+    g.drawImage(board.tmp, 0, 0);
+    g.shadowColor = 'rgba(30, 18, 8, 0.45)';
+    g.shadowBlur = cs * 0.2;
+    g.shadowOffsetX = cs * 0.04;
+    g.shadowOffsetY = cs * 0.1;
     g.drawImage(board.tmp, 0, 0);
     g.restore();
   }
@@ -594,7 +682,7 @@ export function draw(ctx, game, view, time, dt) {
     ctx.lineWidth = Math.max(1.2, s * 0.14);
     ctx.lineCap = 'round';
     ctx.stroke();
-    const size = s * (1.15 - t * 0.6);
+    const size = s * (1.15 - t * 0.6) * SPRITE_SCALE;
     ctx.drawImage(stitchSprite(game.colors[f.color], flyPx), X(px) - size / 2, Y(py) - size / 2, size, size);
   }
 
@@ -652,7 +740,7 @@ export function draw(ctx, game, view, time, dt) {
     if (b.tween < 0.5) {
       drawSpool(ctx, X(b.x), Y(b.y), park * 0.65, game.colors[b.color], b.remaining);
     } else {
-      drawBeltSpool(ctx, X(b.x), Y(b.y), bh, game.colors[b.color], fill, b.remaining);
+      drawBeltSpool(ctx, X(b.x), Y(b.y), bh, game.colors[b.color], fill, b.remaining || undefined);
     }
   }
   for (const b of game.popping) {
