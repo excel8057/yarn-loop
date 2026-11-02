@@ -14,8 +14,8 @@ const THEME = {
   linenWeave: 'rgba(150, 120, 85, 0.09)',
   groove: '#2b211b',
   grooveMid: '#3a2d24',
-  maple: '#e6c79a',
-  mapleDark: '#b98f5c',
+  maple: '#c99560',
+  mapleDark: '#7d5130',
   slot: 'rgba(8, 14, 20, 0.45)',
   slotEdge: 'rgba(216, 180, 106, 0.45)',
   ink: '#e9dcc3',
@@ -268,148 +268,331 @@ function boardImage(game, s, dpr) {
 
 // ── 실패(보빈) ─────────────────────────────────────────
 
-function spoolLabel(ctx, text, x, y, size, color) {
-  ctx.font = `600 ${size}px "Outfit", system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = size * 0.22;
-  ctx.strokeStyle = shade(color, -0.6);
-  ctx.strokeText(text, x, y);
-  ctx.fillStyle = '#fffaf0';
-  ctx.fillText(text, x, y);
+// 실패는 디테일이 많아 매 프레임 그리기엔 무겁다. 색·크기·숫자별로 한 번 그려 두고 재사용한다.
+const spoolCache = new Map();
+let spoolDpr = 1;
+
+function cachedSprite(id, w, h, paint) {
+  const key = `${id}@${spoolDpr}`;
+  let c = spoolCache.get(key);
+  if (c) return c;
+  if (spoolCache.size > 400) spoolCache.clear();
+  c = Object.assign(document.createElement('canvas'), {
+    width: Math.ceil(w * spoolDpr),
+    height: Math.ceil(h * spoolDpr),
+  });
+  const g = c.getContext('2d');
+  g.scale(spoolDpr, spoolDpr);
+  paint(g);
+  spoolCache.set(key, c);
+  return c;
 }
 
-/** 원판 하나 (옆면 + 윗면). face 는 윗면 칠 */
-function disc(ctx, x, y, R, ry, th, side, face) {
-  ctx.fillStyle = side;
-  ctx.beginPath();
-  ctx.ellipse(x, y + th, R, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillRect(x - R, y, R * 2, th);
-  ctx.fillStyle = face;
-  ctx.beginPath();
-  ctx.ellipse(x, y, R, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
+/** 선반으로 깎은 원목 원판: 둥근 옆면, 나이테 윗면, 테두리 반사광 */
+function woodDisc(g, x, y, R, ry, th) {
+  // 옆면 (원통)
+  const side = g.createLinearGradient(x - R, 0, x + R, 0);
+  side.addColorStop(0, shade(THEME.mapleDark, -0.35));
+  side.addColorStop(0.25, THEME.maple);
+  side.addColorStop(0.45, shade(THEME.maple, 0.12));
+  side.addColorStop(1, shade(THEME.mapleDark, -0.45));
+  g.beginPath();
+  g.ellipse(x, y + th, R, ry, 0, 0, Math.PI);
+  g.lineTo(x - R, y);
+  g.ellipse(x, y, R, ry, 0, Math.PI, 0, true);
+  g.closePath();
+  g.fillStyle = side;
+  g.fill();
+  // 옆면 가운데 둥근 모서리 반사
+  g.strokeStyle = 'rgba(255,240,215,0.25)';
+  g.lineWidth = Math.max(0.6, th * 0.18);
+  g.beginPath();
+  g.ellipse(x, y + th * 0.45, R * 0.995, ry, 0, Math.PI * 0.15, Math.PI * 0.85);
+  g.stroke();
+
+  // 윗면: 나이테
+  const face = g.createRadialGradient(x - R * 0.3, y - ry * 0.4, R * 0.1, x, y, R);
+  face.addColorStop(0, shade(THEME.maple, 0.25));
+  face.addColorStop(0.7, THEME.maple);
+  face.addColorStop(1, shade(THEME.mapleDark, -0.05));
+  g.beginPath();
+  g.ellipse(x, y, R, ry, 0, 0, Math.PI * 2);
+  g.fillStyle = face;
+  g.fill();
+  g.strokeStyle = 'rgba(120,80,40,0.16)';
+  g.lineWidth = Math.max(0.5, R * 0.02);
+  for (const f of [0.92, 0.82, 0.74]) {
+    g.beginPath();
+    g.ellipse(x, y, R * f, ry * f, 0, 0, Math.PI * 2);
+    g.stroke();
+  }
+  // 테두리 반사광 (왼쪽 위)과 아래쪽 경계
+  g.strokeStyle = 'rgba(255,248,230,0.7)';
+  g.lineWidth = Math.max(0.8, R * 0.045);
+  g.lineCap = 'round';
+  g.beginPath();
+  g.ellipse(x, y, R * 0.975, ry * 0.96, 0, Math.PI * 1.05, Math.PI * 1.6);
+  g.stroke();
+  g.strokeStyle = shade(THEME.mapleDark, -0.4);
+  g.lineWidth = Math.max(0.5, R * 0.025);
+  g.beginPath();
+  g.ellipse(x, y, R, ry, 0, Math.PI * 0.05, Math.PI * 0.95);
+  g.stroke();
 }
 
-/** 대기열·보관함의 실패: 원목 플랜지, 실크 실, 금테 두른 색 캡에 숫자 */
+/** 가운데가 살짝 불룩하게 감긴 실 몸통 (세운 실패) */
+function threadBody(g, x, top, bottom, w0, w1, ry, color) {
+  const mid = (top + bottom) / 2;
+  const path = () => {
+    g.beginPath();
+    g.moveTo(x - w0, top);
+    g.quadraticCurveTo(x - w1 * 1.04, mid, x - w0, bottom);
+    g.ellipse(x, bottom, w0, ry * (w0 / w1), 0, Math.PI, 0, true);
+    g.quadraticCurveTo(x + w1 * 1.04, mid, x + w0, top);
+    g.closePath();
+  };
+  const body = g.createLinearGradient(x - w1, 0, x + w1, 0);
+  body.addColorStop(0, shade(color, -0.55));
+  body.addColorStop(0.16, shade(color, -0.12));
+  body.addColorStop(0.3, shade(color, 0.32));
+  body.addColorStop(0.38, shade(color, 0.12));
+  body.addColorStop(0.6, color);
+  body.addColorStop(0.85, shade(color, -0.3));
+  body.addColorStop(1, shade(color, -0.6));
+  path();
+  g.fillStyle = body;
+  g.fill();
+
+  g.save();
+  path();
+  g.clip();
+  // 감긴 실 결
+  const step = Math.max(1.2, (bottom - top) / 16);
+  g.lineWidth = Math.max(0.5, step * 0.35);
+  let i = 0;
+  for (let yy = top + step * 0.5; yy < bottom + ry; yy += step, i++) {
+    g.strokeStyle = i % 2 ? shade(color, -0.35) : shade(color, 0.35);
+    g.globalAlpha = i % 2 ? 0.3 : 0.1;
+    g.beginPath();
+    g.ellipse(x, yy, w1 * 1.05, ry * 0.75, 0, 0.1, Math.PI - 0.1);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  // 비단 광택띠
+  const sheen = g.createLinearGradient(x - w1, 0, x + w1, 0);
+  sheen.addColorStop(0.22, 'rgba(255,255,255,0)');
+  sheen.addColorStop(0.3, 'rgba(255,255,255,0.28)');
+  sheen.addColorStop(0.36, 'rgba(255,255,255,0)');
+  g.fillStyle = sheen;
+  g.fillRect(x - w1 * 1.1, top - ry, w1 * 2.2, bottom - top + ry * 3);
+  // 플랜지 밑 그늘
+  const ao = g.createLinearGradient(0, top, 0, bottom);
+  ao.addColorStop(0, 'rgba(15,8,2,0.45)');
+  ao.addColorStop(0.12, 'rgba(15,8,2,0)');
+  ao.addColorStop(0.85, 'rgba(15,8,2,0)');
+  ao.addColorStop(1, 'rgba(15,8,2,0.35)');
+  g.fillStyle = ao;
+  g.fillRect(x - w1 * 1.1, top - ry, w1 * 2.2, bottom - top + ry * 3);
+  g.restore();
+}
+
+/** 위 원판의 금박 테 컬러 라벨과 양각 숫자 */
+function spoolLabelDisc(g, x, y, R, ry, color, text) {
+  const lr = R * 0.7, lry = ry * 0.7;
+  g.beginPath();
+  g.ellipse(x, y, lr + R * 0.06, lry + R * 0.04, 0, 0, Math.PI * 2);
+  g.fillStyle = goldGradient(g, x - lr, y - lry, x + lr, y + lry);
+  g.fill();
+  const paper = g.createRadialGradient(x - lr * 0.35, y - lry * 0.5, lr * 0.05, x, y, lr * 1.05);
+  paper.addColorStop(0, shade(color, 0.28));
+  paper.addColorStop(0.55, color);
+  paper.addColorStop(1, shade(color, -0.25));
+  g.beginPath();
+  g.ellipse(x, y, lr, lry, 0, 0, Math.PI * 2);
+  g.fillStyle = paper;
+  g.fill();
+  g.strokeStyle = 'rgba(255,240,200,0.35)';
+  g.lineWidth = Math.max(0.5, R * 0.02);
+  g.beginPath();
+  g.ellipse(x, y, lr * 0.86, lry * 0.84, 0, 0, Math.PI * 2);
+  g.stroke();
+  // 라벨 윤기
+  g.beginPath();
+  g.ellipse(x - lr * 0.3, y - lry * 0.45, lr * 0.42, lry * 0.22, -0.2, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(255,255,255,0.16)';
+  g.fill();
+
+  if (text === undefined) return;
+  const size = R * (text.length >= 3 ? 0.52 : 0.66);
+  g.font = `600 ${size}px "Outfit", system-ui, sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.lineJoin = 'round';
+  const ty = y + R * 0.03;
+  g.fillStyle = 'rgba(10,5,0,0.45)';
+  g.fillText(text, x, ty + size * 0.08);
+  g.lineWidth = size * 0.2;
+  g.strokeStyle = shade(color, -0.6);
+  g.strokeText(text, x, ty);
+  const ink = g.createLinearGradient(0, ty - size / 2, 0, ty + size / 2);
+  ink.addColorStop(0, '#ffffff');
+  ink.addColorStop(1, '#efe2c4');
+  g.fillStyle = ink;
+  g.fillText(text, x, ty);
+}
+
+/** 대기열·보관함의 세운 실패: 원목 원판 두 장 사이에 실, 위에 금박 라벨 */
 function drawSpool(ctx, x, y, R, color, label, dim = 0) {
-  const base = dim ? shade(color, -dim) : color;
-  const c = (amt) => shade(base, amt);
-  const ry = R * 0.6, th = R * 0.2;
-  const ty = y - R * 0.5, by = y + R * 0.55;
+  const r = Math.max(4, Math.round(R));
+  const text = label === undefined ? undefined : String(label);
+  const W = r * 2.5, H = r * 3;
+  const sprite = cachedSprite(`s|${color}|${r}|${text}|${dim}`, W, H, (g) => {
+    const cx = W / 2, cy = H * 0.45;
+    const ry = r * 0.5, th = r * 0.19;
+    const ty = cy - r * 0.74, by = cy + r * 0.5;
 
-  ctx.beginPath();
-  ctx.ellipse(x, by + th + R * 0.14, R * 1.05, ry * 0.8, 0, 0, Math.PI * 2);
-  ctx.fillStyle = THEME.shadow;
-  ctx.fill();
+    // 바닥 그림자: 넓고 흐린 것 + 가까운 접지 그림자
+    const sx = cx + r * 0.1, sy = by + th + r * 0.15;
+    const soft = g.createRadialGradient(sx, sy, r * 0.2, sx, sy, r * 1.25);
+    soft.addColorStop(0, 'rgba(0,0,0,0.5)');
+    soft.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = soft;
+    g.beginPath();
+    g.ellipse(sx, sy, r * 1.25, ry * 1.2, 0, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.ellipse(cx, by + th + r * 0.04, r * 0.95, ry * 0.85, 0, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(0,0,0,0.45)';
+    g.fill();
 
-  // 아래 원목 플랜지
-  const woodFace = ctx.createLinearGradient(x - R, 0, x + R, 0);
-  woodFace.addColorStop(0, THEME.mapleDark);
-  woodFace.addColorStop(0.4, THEME.maple);
-  woodFace.addColorStop(1, THEME.mapleDark);
-  disc(ctx, x, by, R, ry, th, shade(THEME.mapleDark, -0.3), woodFace);
+    woodDisc(g, cx, by, r, ry, th);
+    threadBody(g, cx, ty + th, by, r * 0.68, r * 0.76, ry * 0.76, color);
+    woodDisc(g, cx, ty, r, ry, th);
+    spoolLabelDisc(g, cx, ty, r, ry, color, text);
 
-  // 실크 실
-  const w = R * 0.7;
-  const grad = ctx.createLinearGradient(x - w, 0, x + w, 0);
-  grad.addColorStop(0, c(-0.4));
-  grad.addColorStop(0.28, c(0.25));
-  grad.addColorStop(0.42, c(0.05));
-  grad.addColorStop(1, c(-0.45));
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.rect(x - w, ty, w * 2, by - ty);
-  ctx.ellipse(x, by, w, ry * 0.7, 0, 0, Math.PI);
-  ctx.fill();
-  ctx.lineWidth = Math.max(0.6, R * 0.025);
-  ctx.strokeStyle = c(-0.3);
-  ctx.globalAlpha = 0.35;
-  for (let i = 1; i < 9; i++) {
-    const yy = ty + ((by - ty) * i) / 9;
-    ctx.beginPath();
-    ctx.ellipse(x, yy, w, ry * 0.55, 0, 0.15, Math.PI - 0.15);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-
-  // 위 원목 플랜지 + 금테 색 캡
-  disc(ctx, x, ty, R, ry, th, shade(THEME.mapleDark, -0.25), woodFace);
-  ctx.beginPath();
-  ctx.ellipse(x, ty, R * 0.8, ry * 0.8, 0, 0, Math.PI * 2);
-  ctx.fillStyle = goldGradient(ctx, x - R, ty - ry, x + R, ty + ry);
-  ctx.fill();
-  const cap = ctx.createRadialGradient(x - R * 0.25, ty - ry * 0.35, R * 0.05, x, ty, R * 0.75);
-  cap.addColorStop(0, c(0.3));
-  cap.addColorStop(0.6, base);
-  cap.addColorStop(1, c(-0.2));
-  ctx.beginPath();
-  ctx.ellipse(x, ty, R * 0.72, ry * 0.72, 0, 0, Math.PI * 2);
-  ctx.fillStyle = cap;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = Math.max(1, R * 0.04);
-  ctx.beginPath();
-  ctx.ellipse(x, ty, R * 0.62, ry * 0.6, 0, Math.PI * 1.1, Math.PI * 1.5);
-  ctx.stroke();
-
-  if (label !== undefined) {
-    const text = String(label);
-    spoolLabel(ctx, text, x, ty + R * 0.03, R * (text.length >= 3 ? 0.56 : 0.7), base);
-  }
+    if (dim) {
+      g.globalCompositeOperation = 'source-atop';
+      g.fillStyle = `rgba(8,12,18,${dim * 2.2})`;
+      g.fillRect(0, 0, W, H);
+      g.globalCompositeOperation = 'source-over';
+    }
+  });
+  const scale = R / r;
+  ctx.drawImage(sprite, x - (W / 2) * scale, y - H * 0.45 * scale, W * scale, H * scale);
 }
 
-/** 벨트 위에 누운 실패. fill(0~1)만큼 실이 두툼해진다 */
+/** 벨트 위에 누운 실패. fill(0~1)만큼 실이 두툼해진다. 숫자는 금테 명판에 */
 function drawBeltSpool(ctx, x, y, h, color, fill, label, alpha = 1) {
-  const fw = h * 0.2, bodyW = h * 0.64;
-  const bodyH = h * (0.42 + 0.4 * fill);
+  const hp = Math.max(6, Math.round(h));
+  const bucket = Math.round(fill * 10);
+  const W = hp * 1.6, H = hp * 1.5;
+  const sprite = cachedSprite(`b|${color}|${hp}|${bucket}`, W, H, (g) => {
+    const cx = W / 2, cy = H * 0.45;
+    const fw = hp * 0.2, bodyW = hp * 0.62;
+    const bodyH = hp * (0.44 + 0.38 * (bucket / 10));
+
+    const sx = cx + hp * 0.05, sy = cy + hp * 0.52;
+    const soft = g.createRadialGradient(sx, sy, hp * 0.1, sx, sy, hp * 0.7);
+    soft.addColorStop(0, 'rgba(0,0,0,0.5)');
+    soft.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = soft;
+    g.beginPath();
+    g.ellipse(sx, sy, hp * 0.7, hp * 0.16, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // 실 원통 (가로로 누움)
+    const top = cy - bodyH / 2, bot = cy + bodyH / 2;
+    const body = g.createLinearGradient(0, top, 0, bot);
+    body.addColorStop(0, shade(color, -0.35));
+    body.addColorStop(0.18, shade(color, 0.3));
+    body.addColorStop(0.3, shade(color, 0.12));
+    body.addColorStop(0.6, color);
+    body.addColorStop(1, shade(color, -0.6));
+    g.beginPath();
+    g.moveTo(cx - bodyW / 2, top + bodyH * 0.06);
+    g.quadraticCurveTo(cx, top - bodyH * 0.06, cx + bodyW / 2, top + bodyH * 0.06);
+    g.lineTo(cx + bodyW / 2, bot - bodyH * 0.06);
+    g.quadraticCurveTo(cx, bot + bodyH * 0.06, cx - bodyW / 2, bot - bodyH * 0.06);
+    g.closePath();
+    g.fillStyle = body;
+    g.fill();
+    g.save();
+    g.clip();
+    const step = Math.max(1.2, bodyW / 14);
+    g.lineWidth = Math.max(0.5, step * 0.35);
+    let i = 0;
+    for (let xx = cx - bodyW / 2; xx < cx + bodyW / 2 + step; xx += step, i++) {
+      g.strokeStyle = i % 2 ? shade(color, -0.35) : shade(color, 0.35);
+      g.globalAlpha = i % 2 ? 0.35 : 0.18;
+      g.beginPath();
+      g.moveTo(xx - step * 0.4, top - 2);
+      g.quadraticCurveTo(xx + step * 0.3, cy, xx - step * 0.4, bot + 2);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    const ao = g.createLinearGradient(cx - bodyW / 2, 0, cx + bodyW / 2, 0);
+    ao.addColorStop(0, 'rgba(15,8,2,0.45)');
+    ao.addColorStop(0.15, 'rgba(15,8,2,0)');
+    ao.addColorStop(0.85, 'rgba(15,8,2,0)');
+    ao.addColorStop(1, 'rgba(15,8,2,0.45)');
+    g.fillStyle = ao;
+    g.fillRect(cx - bodyW / 2, top - 4, bodyW, bodyH + 8);
+    g.restore();
+
+    // 원목 플랜지 (옆에서 본 원판)
+    for (const side of [-1, 1]) {
+      const px = cx + side * (bodyW / 2 + fw / 2);
+      const wood = g.createLinearGradient(0, cy - hp / 2, 0, cy + hp / 2);
+      wood.addColorStop(0, shade(THEME.maple, 0.2));
+      wood.addColorStop(0.35, THEME.maple);
+      wood.addColorStop(1, shade(THEME.mapleDark, -0.4));
+      g.beginPath();
+      g.roundRect(px - fw / 2, cy - hp / 2, fw, hp, fw * 0.5);
+      g.fillStyle = wood;
+      g.fill();
+      // 바깥쪽 원판 면
+      g.beginPath();
+      g.ellipse(px + side * fw * 0.18, cy, fw * 0.32, hp * 0.47, 0, 0, Math.PI * 2);
+      g.fillStyle = shade(THEME.maple, side < 0 ? 0.1 : -0.15);
+      g.globalAlpha = 0.6;
+      g.fill();
+      g.globalAlpha = 1;
+      g.strokeStyle = 'rgba(255,248,230,0.6)';
+      g.lineWidth = Math.max(0.6, fw * 0.12);
+      g.beginPath();
+      g.moveTo(px - fw * 0.15, cy - hp * 0.4);
+      g.lineTo(px - fw * 0.15, cy - hp * 0.1);
+      g.stroke();
+      g.strokeStyle = shade(THEME.mapleDark, -0.45);
+      g.lineWidth = Math.max(0.5, fw * 0.06);
+      g.beginPath();
+      g.roundRect(px - fw / 2, cy - hp / 2, fw, hp, fw * 0.5);
+      g.stroke();
+    }
+  });
+  const scale = h / hp;
   ctx.save();
   ctx.globalAlpha = alpha;
-
-  ctx.beginPath();
-  ctx.ellipse(x, y + h * 0.52, h * 0.58, h * 0.13, 0, 0, Math.PI * 2);
-  ctx.fillStyle = THEME.shadow;
-  ctx.fill();
-
-  const yarn = ctx.createLinearGradient(0, y - bodyH / 2, 0, y + bodyH / 2);
-  yarn.addColorStop(0, shade(color, -0.2));
-  yarn.addColorStop(0.3, shade(color, 0.3));
-  yarn.addColorStop(0.55, color);
-  yarn.addColorStop(1, shade(color, -0.45));
-  ctx.beginPath();
-  ctx.roundRect(x - bodyW / 2, y - bodyH / 2, bodyW, bodyH, bodyH * 0.3);
-  ctx.fillStyle = yarn;
-  ctx.fill();
-  ctx.save();
-  ctx.clip();
-  ctx.lineWidth = Math.max(0.6, h * 0.025);
-  ctx.strokeStyle = shade(color, -0.3);
-  ctx.globalAlpha = alpha * 0.35;
-  for (let i = -8; i <= 8; i++) {
-    const xx = x + i * h * 0.05;
-    ctx.beginPath();
-    ctx.moveTo(xx - h * 0.04, y - bodyH / 2);
-    ctx.lineTo(xx + h * 0.04, y + bodyH / 2);
-    ctx.stroke();
-  }
+  ctx.drawImage(sprite, x - (W / 2) * scale, y - H * 0.45 * scale, W * scale, H * scale);
+  if (label !== undefined) beltPlate(ctx, String(label), x, y - h * 0.8, h * 0.42);
   ctx.restore();
+}
 
-  for (const side of [-1, 1]) {
-    const fx = x + side * (bodyW / 2 + fw / 2);
-    const g = ctx.createLinearGradient(fx - fw / 2, 0, fx + fw / 2, 0);
-    g.addColorStop(0, THEME.mapleDark);
-    g.addColorStop(0.45, THEME.maple);
-    g.addColorStop(1, shade(THEME.mapleDark, -0.25));
-    ctx.beginPath();
-    ctx.roundRect(fx - fw / 2, y - h / 2, fw, h, fw * 0.45);
-    ctx.fillStyle = g;
-    ctx.fill();
-  }
-
-  if (label !== undefined) spoolLabel(ctx, String(label), x, y - h * 0.72, h * 0.48, color);
-  ctx.restore();
+/** 벨트 위 실패의 남은 수: 금테 두른 작은 명판 */
+function beltPlate(ctx, text, x, y, size) {
+  ctx.font = `600 ${size}px "Outfit", system-ui, sans-serif`;
+  const w = Math.max(size * 1.5, ctx.measureText(text).width + size * 0.8), h = size * 1.25;
+  ctx.beginPath();
+  ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2);
+  ctx.fillStyle = 'rgba(13,21,27,0.88)';
+  ctx.fill();
+  ctx.strokeStyle = THEME.gold;
+  ctx.lineWidth = Math.max(1, size * 0.08);
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = THEME.goldLight;
+  ctx.fillText(text, x, y + size * 0.04);
 }
 
 // ── 판 ─────────────────────────────────────────────────
@@ -657,6 +840,7 @@ function drawParticles(ctx, dt, X, Y, s) {
 
 export function draw(ctx, game, view, time, dt) {
   const { s, ox, oy, dpr } = view;
+  spoolDpr = dpr;
   const X = (wx) => ox + wx * s;
   const Y = (wy) => oy + wy * s;
   const { k } = game;
@@ -731,7 +915,7 @@ export function draw(ctx, game, view, time, dt) {
   });
 
   // 벨트 위 실패 (대기열에서 벨트로 옮겨 가는 동안은 세운 실패 모양 유지)
-  const bh = game.trackW * 1.1 * s;
+  const bh = game.trackW * 1.22 * s;
   for (const b of game.launchQueue) {
     drawSpool(ctx, X(b.x), Y(b.y), park * (1 - b.tween * 0.35), game.colors[b.color], b.remaining);
   }
