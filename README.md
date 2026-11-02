@@ -27,6 +27,15 @@ node serve.mjs    # http://localhost:5173
 
 GitHub Pages에 그대로 올려도 동작합니다.
 
+## 구글 로그인 (클라우드 저장)
+
+오른쪽 위 👤 버튼으로 구글 로그인하면 진행도(깬 스테이지, 현재 스테이지)가 Firebase Realtime Database에 저장되어 다른 기기에서도 이어서 할 수 있습니다. 로그인하지 않으면 브라우저에만 저장됩니다.
+
+- Firebase 프로젝트: `yarn-loop-3f5e0` (Authentication의 Google 로그인, Realtime Database asia-southeast1)
+- 설정값: `src/firebase-config.js` (브라우저에 공개되는 식별자라 커밋해도 됨. 비우면 로그인 기능이 숨겨짐)
+- 보안 규칙: `database.rules.json` 내용을 콘솔의 Realtime Database > 규칙에 게시 (본인 uid 경로만 읽기/쓰기)
+- 승인된 도메인에 `excel8057.github.io`가 있어야 공개 주소에서 로그인됨 (`localhost`는 기본 허용)
+
 ## 구조
 
 | 파일 | 역할 |
@@ -37,6 +46,7 @@ GitHub Pages에 그대로 올려도 동작합니다.
 | `src/generator.js` | 스테이지 생성기: 모양 틀×무늬, 손그림 색 바꾸기, 만다라, 꽃, 픽셀 친구 + 난이도 곡선 |
 | `src/render.js` | Canvas 렌더링 (스티치, 보빈, 벨트, 실 애니메이션) |
 | `src/main.js` | 루프, 입력, HUD/오버레이, 진행도 저장 |
+| `src/cloud.js` | 구글 로그인과 진행도 클라우드 저장 (Firebase Auth + Realtime Database) |
 | `src/audio.js` | WebAudio 합성 효과음 |
 
 레벨 추가는 `src/levels.js`의 `LEVELS`에 픽셀 아트 문자열을 넣거나 `paint()`로 도형을 그리면 됩니다. 문자 하나가 `PALETTE`의 색 하나, `.`은 빈 칸입니다. `upscale()`로 작은 손그림을 키우고 `outline()`으로 검은 테두리를 두를 수 있습니다.
