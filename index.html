@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#f6efe4" />
+  <title>Yarn Loop</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧶</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="hud">
+    <button id="btn-levels" class="icon-btn" aria-label="레벨 선택">☰</button>
+    <div class="title">
+      <span id="lv-label">Lv.1</span>
+      <span id="lv-name"></span>
+      <div class="progress"><div id="progress-fill"></div></div>
+    </div>
+    <div id="belt-count" class="chip">🧵 0/5</div>
+    <button id="btn-mute" class="icon-btn" aria-label="소리 켜기/끄기">🔊</button>
+    <button id="btn-restart" class="icon-btn" aria-label="다시 시작">↻</button>
+  </header>
+  <canvas id="cv"></canvas>
+  <div id="toast" role="status"></div>
+  <div id="overlay" hidden><div class="card"></div></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
