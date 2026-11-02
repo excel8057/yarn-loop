@@ -1,4 +1,4 @@
-import { PALETTE } from './levels.js';
+import { PALETTE } from './art.js';
 import { mulberry32, shuffle } from './rng.js';
 
 // 월드 좌표 단위 = 스티치 한 칸. 보드는 (0,0)~(cols,rows)에 놓인다.
@@ -173,14 +173,25 @@ export class Game {
         if (depths.length - k - size < Math.max(2, avg * 0.3)) size = depths.length - k; // 자투리는 마지막 보빈에 합친다
         const part = depths.slice(k, k + size);
         const mean = part.reduce((s, d) => s + d, 0) / part.length / maxDepth;
-        chunks.push({ color, size, pri: mean + rng() * (0.25 + (def.mix ?? 0) * 1.5) });
+        chunks.push({ color, size, pri: mean + rng() * (0.25 + (def.mix ?? 0) * 0.75) });
         k += size;
       }
     });
     chunks.sort((a, b) => a.pri - b.pri);
 
-    let id = 0;
+    // 시작하자마자 막히지 않도록 맨 앞줄에 바깥에서 보이는 색 보빈을 최소 2개 둔다
     const nq = def.queues;
+    const exposed = this.exposedColors();
+    let need = 2 - chunks.slice(0, nq).filter((c) => exposed.has(c.color)).length;
+    for (let j = nq - 1; j >= 0 && need > 0; j--) {
+      if (exposed.has(chunks[j].color)) continue;
+      const k = chunks.findIndex((c, i) => i >= nq && exposed.has(c.color));
+      if (k < 0) break;
+      [chunks[j], chunks[k]] = [chunks[k], chunks[j]];
+      need--;
+    }
+
+    let id = 0;
     this.queues = Array.from({ length: nq }, () => []);
     for (let i = 0; i < chunks.length; i += nq) {
       const order = shuffle([...Array(nq).keys()], rng);
@@ -194,6 +205,21 @@ export class Game {
         });
       }
     }
+  }
+
+  /** 벨트에서 지금 바로 감을 수 있는(각 줄의 맨 앞) 스티치 색들 */
+  exposedColors() {
+    const { cols: C, rows: R, grid } = this;
+    const set = new Set();
+    for (const cp of this.checkpoints) {
+      for (let x = cp.sx, y = cp.sy; x >= 0 && x < C && y >= 0 && y < R; x += cp.dx, y += cp.dy) {
+        if (grid[y * C + x] >= 0) {
+          set.add(grid[y * C + x]);
+          break;
+        }
+      }
+    }
+    return set;
   }
 
   // ── 레이아웃 ────────────────────────────────────────

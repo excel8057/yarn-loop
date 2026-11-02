@@ -1,24 +1,7 @@
-import { mulberry32, shuffle } from './rng.js';
+import { paint, upscale, outline, pad, heart, HAND } from './art.js';
+import { generateLevel } from './generator.js';
 
-// 스티치 색 팔레트. 레벨 아트의 문자 하나가 색 하나에 대응한다 ('.' 은 빈 칸)
-export const PALETTE = {
-  R: '#e0393e', // 빨강
-  P: '#f58fb4', // 분홍
-  M: '#d23f9a', // 자홍
-  O: '#f5862a', // 주황
-  Y: '#f8c637', // 노랑
-  G: '#3fa65a', // 초록
-  L: '#9fd85e', // 연두
-  T: '#25b5a8', // 청록
-  C: '#6cc4f2', // 하늘
-  B: '#2f6fd8', // 파랑
-  D: '#283b8c', // 남색
-  V: '#8a4fd8', // 보라
-  E: '#c9b0f2', // 라벤더
-  W: '#f3ede2', // 크림
-  N: '#9b5f36', // 갈색
-  K: '#2c2727', // 검정
-};
+export { PALETTE } from './art.js';
 
 /**
  * @typedef {object} LevelDef
@@ -30,47 +13,6 @@ export const PALETTE = {
  * @property {number} belt      벨트에 동시에 올라갈 수 있는 보빈 수
  * @property {number} [mix]     0~1, 클수록 보빈 순서가 뒤섞여 어려워진다
  */
-
-// ── 픽셀 아트 도구 ─────────────────────────────────────
-
-/** fn(u, v, x, y): u,v 는 -1~1 정규화 좌표. 색 문자 또는 빈 값을 돌려준다 */
-function paint(w, h, fn) {
-  const art = [];
-  for (let y = 0; y < h; y++) {
-    let row = '';
-    for (let x = 0; x < w; x++) {
-      row += fn(((x + 0.5) / w) * 2 - 1, ((y + 0.5) / h) * 2 - 1, x, y) || '.';
-    }
-    art.push(row);
-  }
-  return art;
-}
-
-/** 칸마다 f×f 로 키운다 */
-function upscale(art, f = 2) {
-  return art.flatMap((r) => Array(f).fill([...r].map((c) => c.repeat(f)).join('')));
-}
-
-/** 그림 바깥 테두리에 외곽선 색을 한 겹 두른다 (십자수 느낌) */
-function outline(art, ch = 'K') {
-  const h = art.length, w = art[0].length;
-  const at = (x, y) => (x >= 0 && x < w && y >= 0 && y < h ? art[y][x] : '.');
-  return art.map((row, y) => [...row].map((c, x) => {
-    if (c !== '.') return c;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      if (at(x + dx, y + dy) !== '.' && at(x + dx, y + dy) !== ch) return ch;
-    }
-    return '.';
-  }).join(''));
-}
-
-/** 가로세로 한 칸씩 여백을 붙인다 (외곽선이 들어갈 자리) */
-function pad(art) {
-  const blank = '.'.repeat(art[0].length + 2);
-  return [blank, ...art.map((r) => `.${r}.`), blank];
-}
-
-const heart = (x, y) => (x * x + y * y - 1) ** 3 - x * x * y * y * y <= 0;
 
 // ── 그림 ───────────────────────────────────────────────
 
@@ -131,71 +73,6 @@ const ART = {
   }))),
 };
 
-const HAND = {
-  mushroom: [
-    '...RRRR...',
-    '..RRWWRR..',
-    '.RWWRRRRR.',
-    'RRWRRRWWRR',
-    'RRRRRRWWRR',
-    'RWWRRRRRRR',
-    '.RRRRRRRR.',
-    '...WWWW...',
-    '...WWKW...',
-    '...WWWW...',
-  ],
-  cat: [
-    '.K........K.',
-    '.KK......KK.',
-    '.KOK....KOK.',
-    '.KOOKKKKOOK.',
-    '.KOOOOOOOOK.',
-    'KOOGOOOOGOOK',
-    'KOOGOOOOGOOK',
-    'KOOOOPPOOOOK',
-    'KWWOOOOOOWWK',
-    '.KWWOKKOWWK.',
-    '..KKKKKKKK..',
-  ],
-  icecream: [
-    '...PPPP...',
-    '..PPPWPP..',
-    '.PPWPPPPP.',
-    '.PPPPPPWP.',
-    '.CCCCCCCC.',
-    'CCWCCCCCCC',
-    'CCCCCCWCCC',
-    '.NNNNNNNN.',
-    '..NYNNYN..',
-    '..NNYNNN..',
-    '...NYNN...',
-    '....NN....',
-    '....N.....',
-  ],
-  rainbow: [
-    '....RRRRRR....',
-    '..RROOOOOORR..',
-    '.ROOYYYYYYOOR.',
-    'ROYYGGGGGGYYOR',
-    'ROYGBBBBBBGYOR',
-    'ROYGB....BGYOR',
-    'ROYGB....BGYOR',
-    'WWWWW....WWWWW',
-    'WWWWW....WWWWW',
-  ],
-  whale: [
-    '.........B..B.',
-    '..........BB..',
-    '...BBBBBB.B...',
-    '..BBBBBBBBB...',
-    '.BBKBBBBBBBB..',
-    '.BBBBBBBBBBBBB',
-    '.CCCCCCBBBBBB.',
-    '..CCCCCCCBBB..',
-    '....CCCCC.....',
-  ],
-};
-
 /** @type {LevelDef[]} */
 export const LEVELS = [
   { name: '하트', art: ART.heart(), bobbins: 8, queues: 3, slots: 5, belt: 5 },
@@ -211,40 +88,10 @@ export const LEVELS = [
   { name: '고래', art: upscale(HAND.whale), bobbins: 16, queues: 5, slots: 5, belt: 5, mix: 0.45 },
 ];
 
-/** 준비된 레벨을 다 깨면 시드 기반 만다라를 끝없이 만든다 */
-export function proceduralLevel(n) {
-  const rng = mulberry32(n * 9973 + 17);
-  const k = n - LEVELS.length;
-  const size = 22 + Math.floor(rng() * 7);
-  const sym = [4, 5, 6, 8][Math.floor(rng() * 4)];
-  const keys = shuffle(Object.keys(PALETTE).filter((c) => c !== 'K'), rng).slice(0, 4 + Math.min(3, Math.floor(k / 3)));
-  const bandCount = 4 + Math.floor(rng() * 3);
-  const bands = Array.from({ length: bandCount }, (_, i) => ({
-    r: 0.15 + ((i + 1) / bandCount) * 0.75,
-    amp: rng() < 0.6 ? 0.06 + rng() * 0.16 : 0,
-    phase: rng() * Math.PI,
-    color: keys[i % keys.length],
-    alt: rng() < 0.3 ? keys[(i + 2) % keys.length] : null,
-  }));
-  const art = outline(pad(paint(size, size, (u, v) => {
-    const r = Math.hypot(u, v), a = Math.atan2(v, u);
-    for (const b of bands) {
-      const lobe = (1 + Math.cos(sym * a + b.phase)) / 2;
-      if (r < b.r + b.amp * lobe) return b.alt && Math.cos(sym * a + b.phase) > 0.3 ? b.alt : b.color;
-    }
-  })));
-  return {
-    name: `만다라 #${k + 1}`,
-    art,
-    bobbins: 18 + Math.min(10, k),
-    queues: 5,
-    slots: k >= 6 ? 4 : 5,
-    belt: 5,
-    mix: Math.min(1, 0.45 + k * 0.05),
-  };
-}
+/** 전체 스테이지 수. 손으로 만든 레벨 뒤로는 생성기가 채운다 */
+export const TOTAL_LEVELS = 400;
 
 /** @returns {LevelDef} */
 export function getLevel(i) {
-  return i < LEVELS.length ? LEVELS[i] : proceduralLevel(i);
+  return i < LEVELS.length ? LEVELS[i] : generateLevel(i);
 }

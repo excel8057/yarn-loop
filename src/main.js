@@ -1,5 +1,6 @@
 import { Game } from './game.js';
-import { getLevel, LEVELS } from './levels.js';
+import { getLevel, TOTAL_LEVELS } from './levels.js';
+import { isHardLevel } from './generator.js';
 import { computeView, draw, fx } from './render.js';
 import { unlock, sfx, setMuted, isMuted } from './audio.js';
 
@@ -28,7 +29,7 @@ const store = {
 let unlocked = store.get('unlocked', 0);
 // ?level=N 으로 특정 레벨을 바로 열 수 있다 (테스트용)
 const levelParam = Number(new URLSearchParams(location.search).get('level'));
-let levelIndex = levelParam > 0 ? levelParam - 1 : Math.min(store.get('current', 0), unlocked);
+let levelIndex = levelParam > 0 ? Math.min(levelParam, TOTAL_LEVELS) - 1 : Math.min(store.get('current', 0), unlocked);
 let game;
 let view;
 let toastTimer = 0;
@@ -39,7 +40,7 @@ function startLevel(i) {
   store.set('current', i);
   game = new Game(getLevel(i), i + 1);
   fx.clear();
-  $('lv-label').textContent = `Lv.${i + 1}`;
+  $('lv-label').innerHTML = `Lv.${i + 1}<small> / ${TOTAL_LEVELS}</small>`;
   $('lv-name').textContent = getLevel(i).name;
   hideOverlay();
   resize();
@@ -86,6 +87,13 @@ function showWin() {
     unlocked = levelIndex + 1;
     store.set('unlocked', unlocked);
   }
+  if (levelIndex + 1 >= TOTAL_LEVELS) {
+    showOverlay(
+      `<div class="emoji">🏆</div><h2>모든 스테이지 완료!</h2><p>${TOTAL_LEVELS}개의 뜨개질을 전부 끝냈어요.</p>`,
+      [['레벨 선택', showLevels, true]],
+    );
+    return;
+  }
   showOverlay(
     `<div class="emoji">🧶</div><h2>완성!</h2><p>${getLevel(levelIndex).name} 뜨개질을 끝냈어요.</p>`,
     [['다음 레벨', () => startLevel(levelIndex + 1), true]],
@@ -105,17 +113,21 @@ function showLose() {
 }
 
 function showLevels() {
-  const count = Math.max(LEVELS.length, unlocked + 1) + 3;
   let grid = '<div class="level-grid">';
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < TOTAL_LEVELS; i++) {
     const locked = i > unlocked;
-    const cls = ['lv', locked ? 'locked' : '', i === levelIndex ? 'current' : ''].join(' ');
-    grid += `<button class="${cls}" data-lv="${i}" ${locked ? 'disabled' : ''}>${locked ? '🔒' : i + 1}</button>`;
+    const cls = ['lv', locked && 'locked', i < unlocked && 'cleared', i === levelIndex && 'current', isHardLevel(i) && 'hard']
+      .filter(Boolean).join(' ');
+    grid += `<button class="${cls}" data-lv="${i}" ${locked ? 'disabled' : ''}>${i + 1}</button>`;
   }
   grid += '</div>';
-  showOverlay(`<h2>레벨 선택</h2>${grid}`, [['닫기', hideOverlay, false]]);
+  showOverlay(
+    `<h2>레벨 선택</h2><p class="sub">${Math.min(unlocked, TOTAL_LEVELS)} / ${TOTAL_LEVELS} 완료 · ★ 어려운 스테이지</p>${grid}`,
+    [['닫기', hideOverlay, false]],
+  );
   overlay.querySelectorAll('[data-lv]').forEach((b) =>
     b.addEventListener('click', () => startLevel(Number(b.dataset.lv))));
+  overlay.querySelector('.lv.current')?.scrollIntoView({ block: 'center' });
 }
 
 function handleEvents() {

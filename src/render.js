@@ -504,7 +504,7 @@ export function draw(ctx, game, view, time, dt) {
   game.queues.forEach((q, qi) => {
     for (let row = 0; row < Math.min(q.length, 3); row++) {
       const b = q[row];
-      drawSpool(ctx, X(b.x + wobble(b)), Y(b.y), park, game.colors[b.color], b.remaining, row === 0 ? 0 : 0.12 * row);
+      drawSpool(ctx, X(b.x + wobble(b)), Y(b.y), park, game.colors[b.color], b.remaining, row * 0.05);
     }
     if (q.length > 3) {
       const p = game.supplyPos(qi, 2);
