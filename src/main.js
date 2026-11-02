@@ -27,8 +27,9 @@ const store = {
 };
 
 let unlocked = store.get('unlocked', 0);
-// ?level=N 으로 특정 레벨을 바로 열 수 있다 (테스트용)
-const levelParam = Number(new URLSearchParams(location.search).get('level'));
+// ?level=N 으로 특정 레벨을 바로 열 수 있다. 잠금을 건너뛰는 테스트용이라 로컬에서만 받는다
+const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+const levelParam = isLocal ? Number(new URLSearchParams(location.search).get('level')) : 0;
 let levelIndex = levelParam > 0 ? Math.min(levelParam, TOTAL_LEVELS) - 1 : Math.min(store.get('current', 0), unlocked);
 let game;
 let view;
