@@ -40,29 +40,28 @@ function stitchSprite(color, px) {
   c.width = c.height = px;
   const g = c.getContext('2d');
   const s = px;
+  // 색이 또렷하게 읽히도록 음영은 약하게, 고리 경계만 살짝 그린다
   for (const side of [-1, 1]) {
     g.save();
     g.translate(s * (0.5 + side * 0.23), s * 0.5);
     g.rotate(side * 0.36);
-    const grad = g.createLinearGradient(-s * 0.25, -s * 0.5, s * 0.25, s * 0.5);
-    grad.addColorStop(0, shade(color, 0.22));
-    grad.addColorStop(0.5, color);
-    grad.addColorStop(1, shade(color, -0.22));
+    const grad = g.createLinearGradient(0, -s * 0.5, 0, s * 0.5);
+    grad.addColorStop(0, shade(color, 0.14));
+    grad.addColorStop(1, shade(color, -0.1));
     g.beginPath();
-    g.ellipse(0, 0, s * 0.26, s * 0.54, 0, 0, Math.PI * 2);
+    g.ellipse(0, 0, s * 0.27, s * 0.54, 0, 0, Math.PI * 2);
     g.fillStyle = grad;
     g.fill();
-    g.lineWidth = Math.max(0.5, s * 0.045);
-    g.strokeStyle = shade(color, -0.4);
-    g.globalAlpha = 0.55;
+    g.lineWidth = Math.max(0.5, s * 0.04);
+    g.strokeStyle = shade(color, -0.35);
+    g.globalAlpha = 0.45;
     g.stroke();
-    // 실 꼬임 결
-    g.globalAlpha = 0.35;
-    g.strokeStyle = shade(color, 0.5);
-    g.lineWidth = Math.max(0.5, s * 0.06);
+    g.globalAlpha = 0.3;
+    g.strokeStyle = shade(color, 0.6);
+    g.lineWidth = Math.max(0.5, s * 0.05);
     g.beginPath();
-    g.moveTo(-s * 0.08, -s * 0.34);
-    g.quadraticCurveTo(s * 0.02, -s * 0.05, -s * 0.04, s * 0.3);
+    g.moveTo(-s * 0.07, -s * 0.32);
+    g.quadraticCurveTo(0, -s * 0.05, -s * 0.04, s * 0.26);
     g.stroke();
     g.restore();
   }
@@ -92,12 +91,12 @@ function boardImage(game, s, dpr) {
     t.clearRect(0, 0, board.tmp.width, board.tmp.height);
     const px = Math.max(2, Math.ceil(cs * 1.06));
     const off = (px - cs) / 2;
-    // 고리 사이로 보이는 같은 색의 어두운 바탕 (천 느낌)
+    // 고리 사이로 보이는 같은 색의 조금 어두운 바탕 (천 느낌은 살리되 색은 탁해지지 않게)
     for (let y = 0; y < game.rows; y++) {
       for (let x = 0; x < game.cols; x++) {
         const c = game.grid[y * game.cols + x];
         if (c < 0) continue;
-        t.fillStyle = shade(game.colors[c], -0.55);
+        t.fillStyle = shade(game.colors[c], -0.25);
         t.fillRect(board.pad + x * cs - 0.5, board.pad + y * cs - 0.5, cs + 1, cs + 1);
       }
     }
@@ -111,9 +110,9 @@ function boardImage(game, s, dpr) {
     const g = board.canvas.getContext('2d');
     g.clearRect(0, 0, board.canvas.width, board.canvas.height);
     g.save();
-    g.shadowColor = 'rgba(0,0,0,0.5)';
-    g.shadowBlur = cs * 0.9;
-    g.shadowOffsetY = cs * 0.35;
+    g.shadowColor = 'rgba(60,40,20,0.35)';
+    g.shadowBlur = cs * 0.5;
+    g.shadowOffsetY = cs * 0.2;
     g.drawImage(board.tmp, 0, 0);
     g.restore();
   }
@@ -446,6 +445,45 @@ function drawParticles(ctx, dt, X, Y, s) {
   ctx.globalAlpha = 1;
 }
 
+// ── 십자수 천 ──────────────────────────────────────────
+
+/** 벨트 안쪽에 까는 밝은 천. 어두운 실(검정·남색 등)도 또렷하게 보이게 한다 */
+function drawCloth(ctx, game, X, Y, s) {
+  const { G, trackW, cols: C, rows: R, k } = game;
+  const inset = G - trackW * 0.42;
+  const x0 = X(-inset), y0 = Y(-inset), x1 = X(C + inset), y1 = Y(R + inset);
+  const r = Math.max(2, (1.1 * k - trackW * 0.42) * s);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x0, y0, x1 - x0, y1 - y0, r);
+  ctx.fillStyle = '#ddd3c3';
+  ctx.fill();
+  ctx.clip();
+
+  // 칸마다 옅은 격자 (aida 천의 짜임)
+  ctx.strokeStyle = 'rgba(120,95,70,0.13)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = Math.ceil(-inset); x <= C + inset; x++) {
+    ctx.moveTo(Math.round(X(x)) + 0.5, y0);
+    ctx.lineTo(Math.round(X(x)) + 0.5, y1);
+  }
+  for (let y = Math.ceil(-inset); y <= R + inset; y++) {
+    ctx.moveTo(x0, Math.round(Y(y)) + 0.5);
+    ctx.lineTo(x1, Math.round(Y(y)) + 0.5);
+  }
+  ctx.stroke();
+
+  // 가장자리 안쪽 그림자
+  const shadow = ctx.createLinearGradient(0, y0, 0, y0 + 1.2 * k * s);
+  shadow.addColorStop(0, 'rgba(60,40,20,0.22)');
+  shadow.addColorStop(1, 'rgba(60,40,20,0)');
+  ctx.fillStyle = shadow;
+  ctx.fillRect(x0, y0, x1 - x0, 1.2 * k * s);
+  ctx.restore();
+}
+
 // ── 전체 장면 ──────────────────────────────────────────
 
 export function draw(ctx, game, view, time, dt) {
@@ -454,6 +492,7 @@ export function draw(ctx, game, view, time, dt) {
   const Y = (wy) => oy + wy * s;
   const { k } = game;
 
+  drawCloth(ctx, game, X, Y, s);
   drawTrack(ctx, game, X, Y, s);
 
   const img = boardImage(game, s, dpr);

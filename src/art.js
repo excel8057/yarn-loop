@@ -44,12 +44,25 @@ export function upscale(art, f = 2) {
   return art.flatMap((r) => Array(f).fill([...r].map((c) => c.repeat(f)).join('')));
 }
 
-/** 그림 바깥 테두리에 외곽선 색을 한 겹 두른다 (십자수 느낌) */
+/**
+ * 그림 바깥 테두리에 외곽선 색을 한 겹 두른다 (십자수 느낌).
+ * 안쪽 구멍까지 두르면 검정이 너무 많아지므로 바깥과 이어진 빈칸에만 두른다.
+ */
 export function outline(art, ch = 'K') {
   const h = art.length, w = art[0].length;
   const at = (x, y) => (x >= 0 && x < w && y >= 0 && y < h ? art[y][x] : '.');
+  const outside = new Uint8Array(w * h);
+  const stack = [];
+  for (let x = 0; x < w; x++) stack.push([x, 0], [x, h - 1]);
+  for (let y = 0; y < h; y++) stack.push([0, y], [w - 1, y]);
+  while (stack.length) {
+    const [x, y] = stack.pop();
+    if (x < 0 || x >= w || y < 0 || y >= h || outside[y * w + x] || art[y][x] !== '.') continue;
+    outside[y * w + x] = 1;
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
   return art.map((row, y) => [...row].map((c, x) => {
-    if (c !== '.') return c;
+    if (c !== '.' || !outside[y * w + x]) return c;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       if (at(x + dx, y + dy) !== '.' && at(x + dx, y + dy) !== ch) return ch;
     }

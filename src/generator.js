@@ -1,6 +1,6 @@
 // 시드 기반 스테이지 생성기. 같은 번호는 항상 같은 그림과 같은 보빈 배치가 나온다.
 // 그림 종류: 모양 틀 × 무늬 조합, 손그림(색 바꾸기), 만다라, 꽃, 픽셀 친구.
-import { paint, upscale, outline, pad, recolor, heart, HAND } from './art.js';
+import { PALETTE, paint, upscale, outline, pad, recolor, heart, HAND } from './art.js';
 import { mulberry32, shuffle } from './rng.js';
 
 // 어울리는 색끼리 묶은 팔레트 그룹 (art.js 의 PALETTE 문자)
@@ -159,8 +159,50 @@ const FILLS = {
 
 const pick = (arr, rng) => arr[Math.floor(rng() * arr.length)];
 
-function colorsFor(rng, n) {
-  return shuffle(pick(GROUPS, rng), rng).slice(0, n);
+/**
+ * 밝은 천 위에서는 테두리 없이도 잘 보이므로 검은 외곽선은 일부 그림에만 두른다.
+ * 가늘고 성긴 그림은 테두리가 그림을 덮어 버리니 검정이 22%를 넘으면 두르지 않는다.
+ */
+function maybeOutline(art, rng, p) {
+  if (rng() >= p) return art;
+  const out = outline(pad(art));
+  const cells = out.join('').replace(/\./g, '');
+  const black = cells.length - cells.replace(/K/g, '').length;
+  return black / cells.length > 0.22 ? art : out;
+}
+
+/** sRGB hex → CIE Lab */
+function lab(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (c) => { c /= 255; return c > 0.04045 ? ((c + 0.055) / 1.055) ** 2.4 : c / 12.92; };
+  const [r, g, b] = [lin(n >> 16), lin((n >> 8) & 255), lin(n & 255)];
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const x = f((r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.9505);
+  const y = f(r * 0.2126 + g * 0.7152 + b * 0.0722);
+  const z = f((r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.089);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+const LAB = Object.fromEntries(Object.entries(PALETTE).map(([ch, hex]) => [ch, lab(hex)]));
+const MIN_DIST = 30; // 한 그림 안의 색끼리 최소 이만큼은 달라야 한눈에 구분된다
+const dist = (a, b) => Math.hypot(...LAB[a].map((v, i) => v - LAB[b][i]));
+
+/**
+ * 팔레트 그룹에서 서로 충분히 다른 색 n 개를 고른다.
+ * 그룹에서 모자라면 전체 팔레트에서 채운다. avoid 의 색(외곽선 검정 등)과도 겹치지 않게 한다.
+ */
+function colorsFor(rng, n, avoid = ['K']) {
+  const candidates = [
+    ...shuffle(pick(GROUPS, rng), rng),
+    ...shuffle(Object.keys(PALETTE), rng),
+  ];
+  const chosen = [];
+  for (const ch of candidates) {
+    if (chosen.length >= n) break;
+    if (chosen.includes(ch) || avoid.includes(ch)) continue;
+    if ([...chosen, ...avoid].every((o) => dist(ch, o) >= MIN_DIST)) chosen.push(ch);
+  }
+  return chosen;
 }
 
 function shapeArt(rng, size, n) {
@@ -179,7 +221,7 @@ function shapeArt(rng, size, n) {
     if (withBorder && !mask(u * 1.12, v * 1.12)) return border;
     return colors[fill(u, v, x, y)];
   });
-  if (rng() < 0.6) art = outline(pad(art));
+  art = maybeOutline(art, rng, 0.35);
   return { art, name: `${FILLS[fillKey].name} ${MASKS[maskKey].name}` };
 }
 
@@ -194,14 +236,14 @@ function mandalaArt(rng, size, n) {
     color: keys[i % keys.length],
     alt: rng() < 0.3 ? keys[(i + 2) % keys.length] : null,
   }));
-  const art = outline(pad(paint(size, size, (u, v) => {
+  const art = maybeOutline(paint(size, size, (u, v) => {
     const r = Math.hypot(u, v), a = Math.atan2(v, u);
     for (const b of bands) {
       const lobe = (1 + Math.cos(sym * a + b.phase)) / 2;
       if (r < b.r + b.amp * lobe) return b.alt && Math.cos(sym * a + b.phase) > 0.3 ? b.alt : b.color;
     }
     return null;
-  })));
+  }), rng, 0.5);
   return { art, name: '만다라' };
 }
 
@@ -209,7 +251,7 @@ function flowerArt(rng, size, n) {
   const petals = pick([4, 5, 6, 8], rng);
   const c = colorsFor(rng, Math.max(3, Math.min(n + 1, 5)));
   const sharp = 0.5 + rng() * 0.8;
-  const art = outline(pad(paint(size, size, (u, v) => {
+  const art = maybeOutline(paint(size, size, (u, v) => {
     const r = Math.hypot(u, v), a = Math.atan2(v, u) - Math.PI / 2;
     const lobe = ((1 + Math.cos(petals * a)) / 2) ** sharp;
     if (r < 0.18) return c[0];
@@ -218,15 +260,15 @@ function flowerArt(rng, size, n) {
     if (r > outer) return null;
     if (c.length > 3 && r < 0.3 + (outer - 0.3) * 0.45) return c[3];
     return r > outer - 0.13 ? c[c.length > 4 ? 4 : 1] : c[2];
-  })));
+  }), rng, 0.5);
   return { art, name: '꽃' };
 }
 
 /** 좌우 대칭으로 찍는 작은 픽셀 캐릭터를 두 배로 키운다 */
 function invaderArt(rng, size, n) {
   const hw = 5 + Math.floor(rng() * 3), h = 8 + Math.floor(rng() * 4);
-  const c = colorsFor(rng, Math.max(2, Math.min(n, 4)));
   const eye = rng() < 0.5 ? 'K' : 'W';
+  const c = colorsFor(rng, Math.max(2, Math.min(n, 4)), ['K', eye]);
   const half = [];
   for (let y = 0; y < h; y++) {
     const row = [];
@@ -243,7 +285,7 @@ function invaderArt(rng, size, n) {
     const left = [...row].reverse();
     return left.concat(row.slice(1)).join('');
   });
-  return { art: outline(pad(upscale(art, 2))), name: '픽셀 친구' };
+  return { art: maybeOutline(upscale(art, 2), rng, 0.25), name: '픽셀 친구' };
 }
 
 function handArt(rng) {
@@ -252,13 +294,13 @@ function handArt(rng) {
   let name = HAND_NAMES[key];
   if (rng() < 0.65) {
     const used = [...new Set(art.join('').replace(/[.KW]/g, ''))];
-    const pool = shuffle(pick(GROUPS, rng).filter((ch) => ch !== 'K' && ch !== 'W'), rng);
+    const pool = colorsFor(rng, used.length, ['K', 'W']);
     const map = Object.fromEntries(used.map((ch, i) => [ch, pool[i % pool.length]]));
     art = recolor(art, map);
     name = `알록달록 ${name}`;
   }
   if (rng() < 0.5) art = art.map((r) => [...r].reverse().join(''));
-  return { art: outline(pad(upscale(art, 2))), name };
+  return { art: maybeOutline(upscale(art, 2), rng, 0.4), name };
 }
 
 const FAMILIES = [
