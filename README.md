@@ -2,6 +2,10 @@
 
 실을 감아 니트 그림을 풀어내는 컬러 매칭 퍼즐. 모바일 게임 *Yarn Loop: Knit Puzzle*에서 영감을 받은 개인 토이 프로젝트입니다.
 
+**▶ 바로 플레이: https://excel8057.github.io/yarn-loop/** (설치 없이 휴대폰·PC 브라우저에서)
+
+`main`에 푸시하면 GitHub Actions가 GitHub Pages로 자동 배포합니다 (`.github/workflows/pages.yml`).
+
 ## 플레이 방법
 
 - 아래 대기열에서 **맨 앞 보빈**을 탭하면 그림 둘레의 컨베이어 벨트에 올라갑니다.
